@@ -19,7 +19,9 @@ city that switches on when the sun goes down.
 
 <br>
 
-![The network in motion](assets/readme/network.gif)
+*Between Stadium and NGRI — the Blue Line, live.*
+
+![Between Stadium and NGRI](assets/readme/stadium.gif)
 
 <br>
 

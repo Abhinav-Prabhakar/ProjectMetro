@@ -3,6 +3,7 @@
 ### A real-time 3D tracker for the entire Hyderabad Metro network.
 
 <p>
+<a href="https://abhinav-prabhakar.github.io/ProjectMetro/"><img alt="Live demo" src="https://img.shields.io/badge/LIVE-OPEN_THE_TRACKER-0aa06a?style=flat-square&logo=googlechrome&logoColor=white"></a>
 <img alt="JavaScript" src="https://img.shields.io/badge/JavaScript-ES2022-f7df1e?style=flat-square&logo=javascript&logoColor=111">
 <img alt="Three.js" src="https://img.shields.io/badge/Three.js-r170-000000?style=flat-square&logo=three.js&logoColor=fff">
 <img alt="MapLibre" src="https://img.shields.io/badge/MapLibre_GL-4.7-396cb2?style=flat-square&logo=maplibre&logoColor=fff">

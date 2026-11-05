@@ -43,23 +43,26 @@ export const VIADUCT = {
 
 export const TRAIN = {
   carLength: 21.4,
-  carSpacing: 21.8,
-  shellLength: 20.4,
+  carSpacing: 20.2,
+  shellLength: 19.2,
+  bodyHalf: 9.6,        // flat flank half-length; the cab nose continues past it
   width: 2.9,
   railToRoof: 3.8,
-  bodyBottom: 1.0,
+  bodyBottom: 0.9,
   bodyTop: 3.72,
   bogieHalfSpacing: 7.9,
   wheelRadius: 0.43,
   gauge: 1.435,
   doorsPerSide: 4,
-  doorCentres: [-6.6, -2.2, 2.2, 6.6],
-  windowCentres: [-4.4, 0, 4.4],
-  windowWidth: 2.35,
+  doorWidth: 1.72,
+  doorCentres: [-7.8, -3.2, 1.4, 6.0],
+  windowCentres: [-5.5, -0.9, 3.7],
+  windowWidth: 2.1,
+  cabWindowCentre: 8.55,
   endWindowCentres: [-8.75, 8.75],
   endWindowWidth: 1.32,
   blueBandBottom: 3.19,
-  blueBandTop: 3.71,
+  blueBandTop: 3.64,
 };
 
 export const SIM = {

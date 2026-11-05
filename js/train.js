@@ -1,15 +1,40 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from '../vendor/RoundedBoxGeometry.js';
-import { TRAIN, COLORS } from './config.js?v=20261105l';
-import { mergeByMaterial, mergeGeometries } from './geomutil.js?v=20261105l';
-import { makeGlowRadial } from './materials.js?v=20261105l';
+import { TRAIN, COLORS } from './config.js?v=20261105p';
+import { mergeByMaterial, mergeGeometries } from './geomutil.js?v=20261105p';
+import { makeGlowRadial } from './materials.js?v=20261105p';
 
-// One shared radial glow texture for every proxy lamp; each set only needs its
-// own sprite material to swap head/tail colours.
+// ---------------------------------------------------------------------------
+// Hyderabad Metro (Hyundai Rotem) 3-car set — procedural model.
+//
+// Modelled from the reference sheets and photographs in `references/`:
+//   · D–M–D formation, 21.4 m cars, 2.9 m wide, 3.72 m rail-to-roof
+//   · fluted stainless body, royal-blue cantrail band, no waist stripe on the
+//     saloon sides (the tricolour only appears at the cabs)
+//   · cab cars: three double doors + three panoramic saloon windows + cab door
+//   · middle car: four double doors + three panoramic windows
+//   · raked, rounded cab nose with a dark navy canopy, wrap-around windscreen,
+//     the red/green/blue "smile" and the blue nose band carrying the roundel
+// ---------------------------------------------------------------------------
+
+const BODY_BOTTOM = 0.9;
+const BODY_TOP = 3.72;
+const BODY_HALF = TRAIN.bodyHalf; // 9.6 — flat flank; the nose continues past it
+const CAR_TIP = TRAIN.carLength / 2; // 10.7
+const BLUE_BOTTOM = 3.19;
+const BLUE_TOP = 3.64;
+const GLASS_BOTTOM = 2.02;
+const GLASS_TOP = 3.12;
+const DOOR_BOTTOM = 1.02;
+const DOOR_TOP = 3.17;
+const DOOR_W = TRAIN.doorWidth; // 1.72
+const DOOR_LEAF = DOOR_W / 2;
+const WINDOW_W = TRAIN.windowWidth; // 2.05
+
 let proxyGlowTex = null;
 
 // ---------------------------------------------------------------------------
-// Procedural materials & textures
+// canvas helpers
 // ---------------------------------------------------------------------------
 
 function canvas2d(w, h) {
@@ -31,148 +56,8 @@ function texture(canvas, { srgb = true, repeat = null, anisotropy = 8 } = {}) {
   return t;
 }
 
-function makeBrushedSteel() {
-  const c = canvas2d(1024, 512);
-  const g = c.getContext('2d');
-  const grad = g.createLinearGradient(0, 0, 0, 512);
-  grad.addColorStop(0, '#eef1f2');
-  grad.addColorStop(0.35, '#e0e4e5');
-  grad.addColorStop(0.7, '#d3d8d9');
-  grad.addColorStop(1, '#bdc3c4');
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 1024, 512);
-
-  // long horizontal brushing
-  for (let i = 0; i < 4200; i++) {
-    const y = Math.random() * 512;
-    const x = Math.random() * 1024;
-    const len = 40 + Math.random() * 380;
-    const a = 0.008 + Math.random() * 0.032;
-    g.strokeStyle = Math.random() > 0.45 ? `rgba(255,255,255,${a})` : `rgba(55,63,65,${a})`;
-    g.lineWidth = 0.5 + Math.random() * 1.2;
-    g.beginPath();
-    g.moveTo(x, y);
-    g.lineTo(x + len, y + (Math.random() - 0.5) * 1.2);
-    g.stroke();
-  }
-  // faint panel seams
-  for (let x = 128; x < 1024; x += 256) {
-    g.fillStyle = 'rgba(72,80,82,0.16)';
-    g.fillRect(x, 0, 1, 512);
-    g.fillStyle = 'rgba(255,255,255,0.16)';
-    g.fillRect(x + 1, 0, 1, 512);
-  }
-  // small fixings
-  for (let x = 128; x < 1024; x += 256) {
-    for (let y = 42; y < 512; y += 84) {
-      g.fillStyle = 'rgba(65,72,74,0.3)';
-      g.beginPath();
-      g.arc(x + 9, y, 1.35, 0, Math.PI * 2);
-      g.fill();
-    }
-  }
-  return c;
-}
-
-function makeSteelRoughness() {
-  const c = canvas2d(512, 256);
-  const g = c.getContext('2d');
-  g.fillStyle = '#909090';
-  g.fillRect(0, 0, 512, 256);
-  for (let i = 0; i < 2600; i++) {
-    const y = Math.random() * 256;
-    const v = 90 + Math.random() * 80;
-    g.fillStyle = `rgba(${v},${v},${v},0.12)`;
-    g.fillRect(Math.random() * 512, y, 20 + Math.random() * 120, 0.7);
-  }
-  return c;
-}
-
-function makeRoofTexture() {
-  const c = canvas2d(512, 512);
-  const g = c.getContext('2d');
-  g.fillStyle = '#cdd2d3';
-  g.fillRect(0, 0, 512, 512);
-  // faint longitudinal panel lines
-  for (let x = 0; x < 512; x += 32) {
-    g.fillStyle = 'rgba(255,255,255,0.10)';
-    g.fillRect(x, 0, 1, 512);
-    g.fillStyle = 'rgba(66,74,76,0.10)';
-    g.fillRect(x + 1, 0, 1, 512);
-  }
-  for (let i = 0; i < 240; i++) {
-    g.fillStyle = `rgba(30,36,38,${Math.random() * 0.025})`;
-    g.fillRect(Math.random() * 512, Math.random() * 512, 20 + Math.random() * 80, 1);
-  }
-  return c;
-}
-
-function makeGrille() {
-  const c = canvas2d(256, 256);
-  const g = c.getContext('2d');
-  g.fillStyle = '#9ba1a1';
-  g.fillRect(0, 0, 256, 256);
-  for (let y = 4; y < 256; y += 8) {
-    g.fillStyle = 'rgba(28,33,34,0.8)';
-    g.fillRect(4, y, 248, 3);
-    g.fillStyle = 'rgba(240,246,246,0.18)';
-    g.fillRect(4, y + 3, 248, 1);
-  }
-  g.strokeStyle = 'rgba(0,0,0,0.65)';
-  g.lineWidth = 4;
-  g.strokeRect(2, 2, 252, 252);
-  return c;
-}
-
-function makeBallast() {
-  const c = canvas2d(512, 512);
-  const g = c.getContext('2d');
-  g.fillStyle = '#8a8175';
-  g.fillRect(0, 0, 512, 512);
-  for (let i = 0; i < 5200; i++) {
-    const x = Math.random() * 512;
-    const y = Math.random() * 512;
-    const r = 1 + Math.random() * 4.4;
-    const v = 92 + Math.random() * 88;
-    g.fillStyle = `rgb(${v + 14},${v + 8},${v - 2})`;
-    g.beginPath();
-    g.ellipse(x, y, r, r * (0.55 + Math.random() * 0.5), Math.random() * Math.PI, 0, Math.PI * 2);
-    g.fill();
-  }
-  for (let i = 0; i < 250; i++) {
-    g.fillStyle = `rgba(48,44,38,${Math.random() * 0.22})`;
-    g.beginPath();
-    g.arc(Math.random() * 512, Math.random() * 512, 2 + Math.random() * 8, 0, Math.PI * 2);
-    g.fill();
-  }
-  return c;
-}
-
-function makeGround() {
-  const c = canvas2d(512, 512);
-  const g = c.getContext('2d');
-  g.fillStyle = '#484a3e';
-  g.fillRect(0, 0, 512, 512);
-  for (let i = 0; i < 2400; i++) {
-    const v = 40 + Math.random() * 55;
-    g.fillStyle = `rgba(${v},${v + 8},${v - 6},${0.1 + Math.random() * 0.18})`;
-    g.beginPath();
-    g.arc(Math.random() * 512, Math.random() * 512, 1 + Math.random() * 14, 0, Math.PI * 2);
-    g.fill();
-  }
-  return c;
-}
-
-function beamBetween(mat, a, b, radius = 0.03, segments = 8) {
-  const d = new THREE.Vector3().subVectors(b, a);
-  const len = d.length();
-  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, segments), mat);
-  mesh.position.copy(a).addScaledVector(d, 0.5);
-  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
-  return mesh;
-}
-
-function roundRectPath(g, x, y, w, h, r) {  const rr = Math.min(r, w / 2, h / 2);
+function roundRectPath(g, x, y, w, h, r) {
+  const rr = Math.max(0.5, Math.min(r, w / 2, h / 2));
   g.beginPath();
   g.moveTo(x + rr, y);
   g.arcTo(x + w, y, x + w, y + h, rr);
@@ -182,568 +67,131 @@ function roundRectPath(g, x, y, w, h, r) {  const rr = Math.min(r, w / 2, h / 2)
   g.closePath();
 }
 
-function drawHmrMark(g, cx, cy, r, light = true) {
+function drawHmrMark(g, cx, cy, r, { light = true, ring = true } = {}) {
   g.save();
+  // white disc with a royal-blue rim
   g.beginPath();
   g.arc(cx, cy, r, 0, Math.PI * 2);
-  g.fillStyle = light ? '#f2f5f4' : '#0a4c8e';
+  g.fillStyle = light ? '#f7faf9' : '#0a4c8e';
   g.fill();
-  g.lineWidth = r * 0.11;
-  g.strokeStyle = '#0b5fae';
-  g.beginPath();
-  g.arc(cx, cy, r * 0.88, 0, Math.PI * 2);
-  g.stroke();
-  // stylised H
-  g.strokeStyle = '#0b5fae';
-  g.lineWidth = r * 0.24;
-  g.lineCap = 'round';
-  g.beginPath();
-  g.moveTo(cx - r * 0.42, cy - r * 0.38);
-  g.lineTo(cx - r * 0.42, cy + r * 0.38);
-  g.moveTo(cx + r * 0.42, cy - r * 0.38);
-  g.lineTo(cx + r * 0.42, cy + r * 0.38);
-  g.moveTo(cx - r * 0.42, cy + r * 0.02);
-  g.lineTo(cx + r * 0.42, cy + r * 0.02);
-  g.stroke();
-  // green swoosh
-  g.strokeStyle = '#0aa06a';
-  g.lineWidth = r * 0.13;
-  g.beginPath();
-  g.arc(cx, cy, r * 0.72, Math.PI * 1.12, Math.PI * 1.62);
-  g.stroke();
-  // red accent
-  g.strokeStyle = '#d12f31';
-  g.lineWidth = r * 0.075;
-  g.beginPath();
-  g.arc(cx, cy, r * 0.58, Math.PI * 0.15, Math.PI * 0.52);
-  g.stroke();
-  g.restore();
-}
-
-function makeFrontTexture(blue = '#0b5fae') {
-  const W = 1024;
-  const H = 1024;
-  const c = canvas2d(W, H);
-  const g = c.getContext('2d');
-
-  // brushed stainless face
-  const base = g.createLinearGradient(0, 0, 0, H);
-  base.addColorStop(0, '#dde1e1');
-  base.addColorStop(0.3, '#cfd4d4');
-  base.addColorStop(0.68, '#c0c6c6');
-  base.addColorStop(0.92, '#aab0b1');
-  base.addColorStop(1, '#8f9697');
-  g.fillStyle = base;
-  g.fillRect(0, 0, W, H);
-
-  // dark roof brow
-  const brow = g.createLinearGradient(0, 0, 0, H * 0.075);
-  brow.addColorStop(0, '#2c3234');
-  brow.addColorStop(1, '#485052');
-  g.fillStyle = brow;
-  g.fillRect(0, 0, W, H * 0.075);
-
-  // blue cantrail wrapping the cab
-  const band = g.createLinearGradient(0, H * 0.075, 0, H * 0.235);
-  band.addColorStop(0, '#0d6cb9');
-  band.addColorStop(0.65, blue);
-  band.addColorStop(1, '#06508f');
-  g.fillStyle = band;
-  g.fillRect(0, H * 0.075, W, H * 0.16);
-  g.fillStyle = 'rgba(255,255,255,0.55)';
-  g.fillRect(0, H * 0.229, W, 3);
-
-  // destination display
-  g.fillStyle = '#070b0c';
-  roundRectPath(g, W * 0.335, H * 0.098, W * 0.33, H * 0.058, 7);
-  g.fill();
-  g.strokeStyle = 'rgba(190,205,210,0.22)';
-  g.lineWidth = 2;
-  g.stroke();
-  g.fillStyle = '#ff9a2e';
-  g.font = '600 34px "JetBrains Mono", monospace';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.shadowColor = 'rgba(255,150,40,0.9)';
-  g.shadowBlur = 10;
-  g.fillText('RAIDURG', W * 0.5, H * 0.128);
-  g.shadowBlur = 0;
-  // LED mask
-  g.fillStyle = 'rgba(0,0,0,0.42)';
-  for (let y = H * 0.098; y < H * 0.156; y += 2.6) g.fillRect(W * 0.335, y, W * 0.33, 0.8);
-
-  // windscreen — one deep aperture split by two slim pillars
-  g.fillStyle = '#080c0e';
-  roundRectPath(g, W * 0.055, H * 0.205, W * 0.89, H * 0.265, W * 0.048);
-  g.fill();
-  const gl = g.createLinearGradient(0, H * 0.205, 0, H * 0.47);
-  gl.addColorStop(0, '#18262c');
-  gl.addColorStop(0.42, '#0a1114');
-  gl.addColorStop(1, '#060a0c');
-  g.fillStyle = gl;
-  roundRectPath(g, W * 0.068, H * 0.218, W * 0.864, H * 0.235, W * 0.042);
-  g.fill();
-  // sky reflection on the screen
-  g.save();
-  g.globalCompositeOperation = 'lighter';
-  g.globalAlpha = 0.14;
-  g.fillStyle = '#bcd8e8';
-  g.beginPath();
-  g.moveTo(W * 0.14, H * 0.218);
-  g.lineTo(W * 0.36, H * 0.218);
-  g.lineTo(W * 0.22, H * 0.453);
-  g.lineTo(W * 0.08, H * 0.453);
-  g.closePath();
-  g.fill();
-  g.restore();
-  // pillars
-  for (const x of [0.36, 0.64]) {
-    g.fillStyle = '#0a0e10';
-    g.fillRect(W * x - 3, H * 0.208, 6, H * 0.26);
-    g.fillStyle = 'rgba(210,220,220,0.28)';
-    g.fillRect(W * x + 3, H * 0.208, 1.5, H * 0.26);
-  }
-
-  // tricolour waist: red, green, blue (the line colour is the thick one)
-  g.fillStyle = '#d12f31';
-  g.fillRect(0, H * 0.515, W, H * 0.012);
-  g.fillStyle = '#11934a';
-  g.fillRect(0, H * 0.527, W, H * 0.035);
-  g.fillStyle = blue;
-  g.fillRect(0, H * 0.562, W, H * 0.072);
-  g.fillStyle = 'rgba(255,255,255,0.22)';
-  g.fillRect(0, H * 0.562, W, 2);
-
-  // lower silver panel with the coupler recess
-  g.fillStyle = 'rgba(255,255,255,0.08)';
-  g.fillRect(0, H * 0.634, W, H * 0.28);
-  g.fillStyle = '#111516';
-  roundRectPath(g, W * 0.415, H * 0.88, W * 0.17, H * 0.064, 8);
-  g.fill();
-  g.strokeStyle = 'rgba(220,228,228,0.18)';
-  g.lineWidth = 2;
-  g.stroke();
-
-  // headlight clusters
-  for (const cx of [0.235, 0.765]) {
-    g.fillStyle = '#0b0f10';
-    roundRectPath(g, W * (cx - 0.095), H * 0.71, W * 0.19, H * 0.092, 14);
-    g.fill();
-    const lamp = g.createRadialGradient(W * cx, H * 0.756, 2, W * cx, H * 0.756, W * 0.075);
-    lamp.addColorStop(0, '#fffdf2');
-    lamp.addColorStop(0.45, '#ffe9b8');
-    lamp.addColorStop(1, '#2a2620');
-    g.fillStyle = lamp;
+  if (ring) {
+    g.lineWidth = Math.max(1, r * 0.17);
+    g.strokeStyle = '#0b5fae';
     g.beginPath();
-    g.ellipse(W * cx, H * 0.756, W * 0.062, H * 0.026, 0, 0, Math.PI * 2);
-    g.fill();
-    // LED signature bar
-    g.fillStyle = '#e9f7ff';
-    g.fillRect(W * (cx - 0.072), H * 0.722, W * 0.144, H * 0.012);
-  }
-
-  // HMR crest under the screen
-  drawHmrMark(g, W * 0.5, H * 0.66, W * 0.032, true);
-
-  // panel seams
-  g.strokeStyle = 'rgba(52,60,62,0.22)';
-  g.lineWidth = 2;
-  for (const x of [0.335, 0.665]) {
-    g.beginPath();
-    g.moveTo(W * x, H * 0.64);
-    g.lineTo(W * x, H * 0.98);
+    g.arc(cx, cy, r * 0.9, 0, Math.PI * 2);
     g.stroke();
   }
-
-  // unit number
-  g.fillStyle = 'rgba(45,52,54,0.66)';
-  g.font = '600 18px "JetBrains Mono", monospace';
-  g.textAlign = 'right';
-  g.textBaseline = 'alphabetic';
-  g.fillText('HMR 03', W * 0.95, H * 0.965);
-
-  // weathering
-  for (let i = 0; i < 240; i++) {
-    const x = Math.random() * W;
-    const y = H * (0.66 + Math.random() * 0.32);
-    g.fillStyle = `rgba(38,40,38,${Math.random() * 0.04})`;
-    g.fillRect(x, y, 1 + Math.random() * 7, 2 + Math.random() * 22);
-  }
-  const sheen = g.createLinearGradient(0, 0, W, H);
-  sheen.addColorStop(0, 'rgba(255,255,255,0.1)');
-  sheen.addColorStop(0.38, 'rgba(255,255,255,0)');
-  sheen.addColorStop(0.72, 'rgba(0,0,0,0.03)');
-  g.fillStyle = sheen;
-  g.fillRect(0, 0, W, H);
-
-  return c;
-}
-
-function makeSideDecal() {
-  const c = canvas2d(768, 320);
-  const g = c.getContext('2d');
-  g.clearRect(0, 0, 768, 320);
-  drawHmrMark(g, 94, 168, 68, true);
-  g.fillStyle = '#0c4f91';
-  g.font = '500 33px "Inter", sans-serif';
-  g.letterSpacing = '4px';
-  g.fillText('HYDERABAD', 186, 150);
-  g.font = '700 54px "Inter", sans-serif';
-  g.letterSpacing = '2px';
-  g.fillText('METRO', 184, 207);
-  g.strokeStyle = '#d12f31';
-  g.lineWidth = 5;
-  g.beginPath();
-  g.moveTo(188, 230);
-  g.lineTo(400, 230);
-  g.stroke();
-  g.strokeStyle = '#11934a';
-  g.lineWidth = 4;
-  g.beginPath();
-  g.moveTo(188, 244);
-  g.lineTo(360, 244);
-  g.stroke();
-  g.fillStyle = 'rgba(16,58,93,0.55)';
-  g.font = '400 17px "JetBrains Mono", monospace';
-  g.letterSpacing = '3px';
-  g.fillText('L&T METRO RAIL', 188, 279);
-  return c;
-}
-
-
-// ---------------------------------------------------------------------------
-// Side livery
-//
-// A single painted strip per car replicates the real HMRL set: fluted
-// stainless panels, a royal-blue cantrail band, the long dark window band,
-// four sliding doors per side, the tricolour waist line and the HMR crest.
-// Drawing it once and using it as a decal is both sharper and much cheaper
-// than hundreds of tiny window/frame meshes.
-// ---------------------------------------------------------------------------
-function makeSideLivery(blue = '#0a5fa8', { carIndex = 0 } = {}) {
-  const W = 2048;
-  const H = 384;
-  const c = canvas2d(W, H);
-  const g = c.getContext('2d');
-  const halfZ = TRAIN.shellLength / 2; // 10.2
-  const yTop = 3.74;
-  const yBot = 1.0;
-  const X = (z) => ((z + halfZ) / (halfZ * 2)) * W;
-  const Y = (y) => ((yTop - y) / (yTop - yBot)) * H;
-  const dash = (z, w) => [X(z - w / 2), X(z + w / 2)];
-  const boxY = (y0, y1) => [Y(y1), Y(y0)];
-
-  // brushed stainless base
-  const base = g.createLinearGradient(0, 0, 0, H);
-  base.addColorStop(0, '#e3e7e7');
-  base.addColorStop(0.22, '#d5dada');
-  base.addColorStop(0.62, '#c7cccc');
-  base.addColorStop(0.9, '#b4babb');
-  base.addColorStop(1, '#9fa6a7');
-  g.fillStyle = base;
-  g.fillRect(0, 0, W, H);
-
-  // horizontal fluting — the signature of the Rotem stainless body
-  for (let y = 6; y < H; y += 7) {
-    g.fillStyle = 'rgba(255,255,255,0.16)';
-    g.fillRect(0, y, W, 1);
-    g.fillStyle = 'rgba(58,66,68,0.13)';
-    g.fillRect(0, y + 1, W, 1);
-  }
-  // broader panel joints
-  const seams = [-10.0, -7.6, -5.2, -3.0, -0.8, 1.4, 3.6, 5.8, 8.0, 9.7];
-  for (const z of seams) {
-    g.fillStyle = 'rgba(60,68,70,0.22)';
-    g.fillRect(X(z), 0, 1.4, H);
-    g.fillStyle = 'rgba(255,255,255,0.18)';
-    g.fillRect(X(z) + 1.4, 0, 1, H);
-  }
-  // fixings along the waist
-  g.fillStyle = 'rgba(70,78,80,0.34)';
-  for (const z of seams) {
-    for (const y of [0.78, 1.62, 2.95]) {
-      g.beginPath();
-      g.arc(X(z) + 5, Y(y), 2.1, 0, Math.PI * 2);
-      g.fill();
-    }
-  }
-
-  // royal blue cantrail band
-  const [bTop, bBot] = boxY(3.19, 3.7);
-  const band = g.createLinearGradient(0, bTop, 0, bBot);
-  band.addColorStop(0, '#0b67b2');
-  band.addColorStop(0.55, blue);
-  band.addColorStop(1, '#074a86');
-  g.fillStyle = band;
-  g.fillRect(0, bTop, W, bBot - bTop);
-  g.fillStyle = 'rgba(255,255,255,0.6)';
-  g.fillRect(0, bBot - 2, W, 1.4);
-  // dark roof lip above the band
-  g.fillStyle = '#4c5354';
-  g.fillRect(0, 0, W, bTop - 1);
-
-  // smoked window band: individual bays between the doors
-  const glassBay = (z, w, h, yMid, { door = false } = {}) => {
-    const [z0, z1] = dash(z, w);
-    const [y1, y0] = boxY(yMid - h / 2, yMid + h / 2);
-    // black gasket
-    g.fillStyle = '#0b0f10';
-    g.fillRect(z0 - 3, y0 - 3, z1 - z0 + 6, y1 - y0 + 6);
-    // deep tinted glass
-    const gl = g.createLinearGradient(z0, y0, z1, y1);
-    gl.addColorStop(0, '#152025');
-    gl.addColorStop(0.35, '#2c3e45');
-    gl.addColorStop(0.52, '#0d1417');
-    gl.addColorStop(1, '#1a262b');
-    g.fillStyle = gl;
-    g.fillRect(z0, y0, z1 - z0, y1 - y0);
-    // sky reflection streak
-    g.save();
-    g.globalCompositeOperation = 'lighter';
-    g.globalAlpha = 0.18;
-    g.fillStyle = '#cfe6f2';
+  // three curved blades (green / red / blue) forming the HMR pinwheel
+  const blades = [
+    ['#11a04f', Math.PI * 0.16, Math.PI * 0.83],
+    ['#e23227', Math.PI * 0.83, Math.PI * 1.5],
+    ['#0b5fae', Math.PI * 1.5, Math.PI * 2.17],
+  ];
+  g.lineCap = 'round';
+  for (const [col, a0, a1] of blades) {
+    g.strokeStyle = col;
+    g.lineWidth = Math.max(1, r * 0.34);
     g.beginPath();
-    g.moveTo(z0 + (z1 - z0) * 0.16, y0);
-    g.lineTo(z0 + (z1 - z0) * 0.42, y0);
-    g.lineTo(z0 + (z1 - z0) * 0.2, y1);
-    g.lineTo(z0 + (z1 - z0) * 0.02, y1);
-    g.closePath();
-    g.fill();
-    g.restore();
-    if (!door) {
-      // thin centre mullion on the big saloon windows
-      g.fillStyle = 'rgba(190,200,200,0.5)';
-      g.fillRect((z0 + z1) / 2 - 1, y0, 2, y1 - y0);
-    }
-    // bright lower gasket
-    g.fillStyle = 'rgba(220,228,228,0.28)';
-    g.fillRect(z0 - 3, y1 + 1, z1 - z0 + 6, 2);
-  };
-
-  // doors are painted as dark apertures; the animated 3D leaves sit over them
-  for (const z of TRAIN.doorCentres) {
-    const [z0, z1] = dash(z, 1.3);
-    const [y1, y0] = boxY(1.22, 3.18);
-    g.fillStyle = '#0a0e10';
-    g.fillRect(z0, y0, z1 - z0, y1 - y0);
-    const inner = g.createLinearGradient(z0, y0, z0, y1);
-    inner.addColorStop(0, '#161b1c');
-    inner.addColorStop(0.5, '#2b2d28');
-    inner.addColorStop(1, '#0b0e0f');
-    g.fillStyle = inner;
-    g.fillRect(z0 + 4, y0 + 4, z1 - z0 - 8, y1 - y0 - 8);
-    // door jamb highlights
-    g.fillStyle = 'rgba(215,222,222,0.42)';
-    g.fillRect(z0 - 2, y0, 2, y1 - y0);
-    g.fillRect(z1, y0, 2, y1 - y0);
-    // warm hint of the saloon beyond the doorway
-    g.fillStyle = 'rgba(255,196,110,0.10)';
-    g.fillRect(z0 + 10, y0 + 20, z1 - z0 - 20, y1 - y0 - 60);
+    g.arc(cx, cy, r * 0.55, a0, a1);
+    g.stroke();
   }
-
-  // saloon windows
-  for (const z of TRAIN.windowCentres) glassBay(z, TRAIN.windowWidth, 1.1, 2.56);
-  // end windows
-  for (const z of [-8.78, 8.78]) glassBay(z, 1.32, 1.08, 2.56);
-  // cab side window
-  for (const z of [-9.33, 9.33]) glassBay(z, 0.52, 0.96, 2.56);
-
-  // waist tricolour — thin red and green lines under the blue band
-  g.fillStyle = '#d12f31';
-  g.fillRect(0, Y(3.06), W, 2);
-  g.fillStyle = '#11934a';
-  g.fillRect(0, Y(3.02), W, 2);
-
-  // lower skirt shadow
-  const skirt = g.createLinearGradient(0, Y(1.55), 0, H);
-  skirt.addColorStop(0, 'rgba(30,34,35,0)');
-  skirt.addColorStop(1, 'rgba(22,26,27,0.35)');
-  g.fillStyle = skirt;
-  g.fillRect(0, Y(1.55), W, H - Y(1.55));
-
-  // HMR crest + wordmark toward the cab end
-  if (carIndex === 2) {
-    const cx = X(8.35);
-    const cy = Y(1.62);
-    drawHmrMark(g, cx, cy, 26, true);
-    g.fillStyle = 'rgba(10,55,95,0.72)';
-    g.font = '600 13px "Inter", sans-serif';
-    g.letterSpacing = '2px';
-    g.fillText('HYDERABAD METRO', cx + 38, cy - 2);
-    g.fillStyle = 'rgba(10,55,95,0.5)';
-    g.font = '500 10px "JetBrains Mono", monospace';
-    g.fillText('L&T METRO RAIL', cx + 39, cy + 15);
-  }
-  // unit numbers near each cab
-  g.fillStyle = 'rgba(50,58,60,0.55)';
-  g.font = '600 11px "JetBrains Mono", monospace';
-  g.textAlign = 'left';
-  g.fillText(`HMRL 03${String(carIndex + 1).padStart(2, '0')}`, X(-9.9), Y(1.25));
-
-  // grime along the bottom edge
-  for (let i = 0; i < 220; i++) {
-    const x = Math.random() * W;
-    const y = Y(1.35 + Math.random() * 0.35);
-    g.fillStyle = `rgba(40,42,38,${Math.random() * 0.05})`;
-    g.fillRect(x, y, 2 + Math.random() * 12, 1 + Math.random() * 4);
-  }
-  return c;
-}
-
-
-// Emissive companion to the side livery: only the glazing lights up, so the
-// saloon reads as warm interior light at night while the stainless stays dark.
-function makeSideEmissive() {
-  const W = 2048;
-  const H = 384;
-  const c = canvas2d(W, H);
-  const g = c.getContext('2d');
-  g.fillStyle = '#000000';
-  g.fillRect(0, 0, W, H);
-  const halfZ = TRAIN.shellLength / 2;
-  const yTop = 3.74;
-  const yBot = 1.0;
-  const X = (z) => ((z + halfZ) / (halfZ * 2)) * W;
-  const Y = (y) => ((yTop - y) / (yTop - yBot)) * H;
-
-  const pane = (z, w, h, yMid, strength = 1) => {
-    const x0 = X(z - w / 2);
-    const x1 = X(z + w / 2);
-    const y0 = Y(yMid + h / 2);
-    const y1 = Y(yMid - h / 2);
-    g.save();
-    g.shadowColor = 'rgba(255,190,110,0.9)';
-    g.shadowBlur = 18;
-    const gr = g.createLinearGradient(0, y0, 0, y1);
-    gr.addColorStop(0, `rgba(255,224,176,${0.92 * strength})`);
-    gr.addColorStop(0.45, `rgba(255,204,138,${0.82 * strength})`);
-    gr.addColorStop(1, `rgba(214,150,84,${0.6 * strength})`);
-    g.fillStyle = gr;
-    g.fillRect(x0 + 3, y0 + 3, x1 - x0 - 6, y1 - y0 - 6);
-    // silhouettes of seats / poles
-    g.fillStyle = `rgba(40,26,12,${0.4 * strength})`;
-    g.fillRect(x0 + 8, y1 - (y1 - y0) * 0.34, x1 - x0 - 16, 4);
-    for (let i = 0; i < 3; i++) {
-      const bx = x0 + (x1 - x0) * (0.2 + i * 0.3);
-      g.fillRect(bx, y0 + 8, 3, y1 - y0 - 16);
-    }
-    g.restore();
-  };
-
-  for (const z of TRAIN.windowCentres) pane(z, TRAIN.windowWidth, 1.1, 2.56);
-  for (const z of [-8.78, 8.78]) pane(z, 1.32, 1.08, 2.56);
-  for (const z of [-9.33, 9.33]) pane(z, 0.52, 0.96, 2.56, 0.55);
-  // door glass glows a little cooler and dimmer
-  for (const z of TRAIN.doorCentres) pane(z, 1.0, 1.5, 2.34, 0.5);
-  return c;
-}
-
-// A single door leaf as a painted panel: brushed steel with one tall glazed
-// aperture, so the whole leaf is one draw call instead of five.
-function makeDoorLeaf() {
-  const W = 256;
-  const H = 768;
-  const c = canvas2d(W, H);
-  const g = c.getContext('2d');
-  const base = g.createLinearGradient(0, 0, 0, H);
-  base.addColorStop(0, '#e7ebeb');
-  base.addColorStop(0.32, '#d6dbdb');
-  base.addColorStop(0.7, '#c3c9c9');
-  base.addColorStop(1, '#aab0b1');
-  g.fillStyle = base;
-  g.fillRect(0, 0, W, H);
-  // fluting
-  for (let y = 4; y < H; y += 9) {
-    g.fillStyle = 'rgba(255,255,255,0.13)';
-    g.fillRect(0, y, W, 1);
-    g.fillStyle = 'rgba(50,58,60,0.1)';
-    g.fillRect(0, y + 1, W, 1);
-  }
-  // glazed aperture
-  g.fillStyle = '#0a0e10';
-  roundRectPath(g, 22, 18, W - 44, H * 0.48, 9);
-  g.fill();
-  const gl = g.createLinearGradient(0, 18, W, H * 0.5);
-  gl.addColorStop(0, '#131d21');
-  gl.addColorStop(0.4, '#2a3a40');
-  gl.addColorStop(0.55, '#0c1316');
-  gl.addColorStop(1, '#1a262b');
-  g.fillStyle = gl;
-  roundRectPath(g, 27, 23, W - 54, H * 0.48 - 10, 7);
-  g.fill();
-  // reflection streak
-  g.save();
-  g.globalCompositeOperation = 'lighter';
-  g.globalAlpha = 0.16;
-  g.fillStyle = '#d4e8f2';
+  // pinwheel centre
+  g.fillStyle = '#f7faf9';
   g.beginPath();
-  g.moveTo(46, 26);
-  g.lineTo(112, 26);
-  g.lineTo(64, H * 0.48);
-  g.lineTo(32, H * 0.48);
-  g.closePath();
+  g.arc(cx, cy, r * 0.13, 0, Math.PI * 2);
   g.fill();
   g.restore();
-  // centre seam and edge shadows
-  g.fillStyle = 'rgba(54,62,64,0.5)';
-  g.fillRect(W / 2 - 1, 0, 2, H);
-  g.fillStyle = 'rgba(22,26,27,0.55)';
-  g.fillRect(0, 0, 5, H);
-  g.fillRect(W - 5, 0, 5, H);
-  // handle
-  g.fillStyle = '#1c2122';
-  roundRectPath(g, W - 44, H * 0.56, 12, 82, 6);
-  g.fill();
-  g.fillStyle = 'rgba(230,238,238,0.4)';
-  g.fillRect(W - 42, H * 0.56 + 4, 2, 74);
-  // kick plate
-  const kick = g.createLinearGradient(0, H * 0.78, 0, H);
-  kick.addColorStop(0, 'rgba(70,76,76,0.18)');
-  kick.addColorStop(1, 'rgba(40,46,46,0.5)');
-  g.fillStyle = kick;
-  g.fillRect(0, H * 0.78, W, H * 0.22);
-  g.fillStyle = 'rgba(50,58,58,0.3)';
-  g.fillRect(0, H * 0.78, W, 2);
-  return c;
 }
 
-function makeDoorEmissive() {
-  const W = 256;
-  const H = 768;
-  const c = canvas2d(W, H);
-  const g = c.getContext('2d');
-  g.fillStyle = '#000000';
-  g.fillRect(0, 0, W, H);
+function drawHmrWordmark(g, cx, cy, scale = 1, { color = '#0b4f9c' } = {}) {
   g.save();
-  g.shadowColor = 'rgba(255,196,120,0.9)';
-  g.shadowBlur = 22;
-  const gr = g.createLinearGradient(0, 20, 0, H * 0.5);
-  gr.addColorStop(0, 'rgba(255,224,172,0.75)');
-  gr.addColorStop(1, 'rgba(224,162,92,0.45)');
-  g.fillStyle = gr;
-  roundRectPath(g, 27, 23, W - 54, H * 0.48 - 10, 7);
-  g.fill();
-  g.restore();
-  return c;
-}
-
-function makeDestination(text = 'RAIDURG') {
-  const c = canvas2d(512, 96);
-  const g = c.getContext('2d');
-  g.fillStyle = '#080b0c';
-  g.fillRect(0, 0, 512, 96);
-  g.fillStyle = '#ff9a2e';
-  g.font = '600 54px "JetBrains Mono", monospace';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.shadowColor = 'rgba(255,140,30,0.85)';
-  g.shadowBlur = 14;
-  g.fillText(text, 256, 51);
-  // LED matrix mask
-  g.shadowBlur = 0;
-  g.fillStyle = 'rgba(0,0,0,0.38)';
-  for (let y = 0; y < 96; y += 3) g.fillRect(0, y, 512, 1);
-  for (let x = 0; x < 512; x += 3) g.fillRect(x, 0, 1, 96);
+  g.fillStyle = color;
+  g.font = `800 ${Math.round(13 * scale)}px Inter, "Helvetica Neue", sans-serif`;
+  g.letterSpacing = `${Math.round(1.2 * scale)}px`;
+  g.fillText('HYDERABAD', cx, cy - 12 * scale);
+  g.font = `900 ${Math.round(22 * scale)}px Inter, "Helvetica Neue", sans-serif`;
+  g.letterSpacing = `${Math.round(1.6 * scale)}px`;
+  g.fillText('METRO', cx, cy + 9 * scale);
+  g.restore();
+}
+
+// ---------------------------------------------------------------------------
+// generic maps
+// ---------------------------------------------------------------------------
+
+function makeBrushedSteel() {
+  const c = canvas2d(1024, 512);
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0, '#f2f5f5');
+  grad.addColorStop(0.35, '#e8ecec');
+  grad.addColorStop(0.72, '#dfe4e4');
+  grad.addColorStop(1, '#d2d8d8');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 1024, 512);
+  for (let i = 0; i < 4200; i++) {
+    const y = Math.random() * 512;
+    const x = Math.random() * 1024;
+    const len = 40 + Math.random() * 400;
+    const a = 0.006 + Math.random() * 0.03;
+    g.strokeStyle = Math.random() > 0.45 ? `rgba(255,255,255,${a})` : `rgba(70,80,82,${a})`;
+    g.lineWidth = 0.5 + Math.random() * 1.1;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + len, y + (Math.random() - 0.5) * 1.1);
+    g.stroke();
+  }
+  return c;
+}
+
+function makeSteelRoughness() {
+  const c = canvas2d(512, 256);
+  const g = c.getContext('2d');
+  g.fillStyle = '#8e8e8e';
+  g.fillRect(0, 0, 512, 256);
+  for (let i = 0; i < 2600; i++) {
+    const y = Math.random() * 256;
+    const v = 90 + Math.random() * 80;
+    g.fillStyle = `rgba(${v},${v},${v},0.12)`;
+    g.fillRect(Math.random() * 512, y, 20 + Math.random() * 130, 0.7);
+  }
+  return c;
+}
+
+function makeRoofTexture() {
+  const c = canvas2d(512, 512);
+  const g = c.getContext('2d');
+  g.fillStyle = '#c9ced0';
+  g.fillRect(0, 0, 512, 512);
+  for (let x = 0; x < 512; x += 34) {
+    g.fillStyle = 'rgba(255,255,255,0.12)';
+    g.fillRect(x, 0, 1, 512);
+    g.fillStyle = 'rgba(58,66,68,0.12)';
+    g.fillRect(x + 1, 0, 1, 512);
+  }
+  for (let i = 0; i < 220; i++) {
+    g.fillStyle = `rgba(30,36,38,${Math.random() * 0.025})`;
+    g.fillRect(Math.random() * 512, Math.random() * 512, 20 + Math.random() * 90, 1);
+  }
+  return c;
+}
+
+function makeGrille() {
+  const c = canvas2d(256, 256);
+  const g = c.getContext('2d');
+  g.fillStyle = '#8c9294';
+  g.fillRect(0, 0, 256, 256);
+  for (let y = 5; y < 256; y += 9) {
+    g.fillStyle = 'rgba(24,29,30,0.85)';
+    g.fillRect(4, y, 248, 3);
+    g.fillStyle = 'rgba(240,246,246,0.2)';
+    g.fillRect(4, y + 3, 248, 1);
+  }
+  g.strokeStyle = 'rgba(0,0,0,0.65)';
+  g.lineWidth = 5;
+  g.strokeRect(2, 2, 252, 252);
   return c;
 }
 
@@ -752,8 +200,8 @@ function makeGlow() {
   const g = c.getContext('2d');
   const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
   gr.addColorStop(0, 'rgba(255,255,255,1)');
-  gr.addColorStop(0.18, 'rgba(255,244,220,0.75)');
-  gr.addColorStop(0.45, 'rgba(255,220,170,0.18)');
+  gr.addColorStop(0.16, 'rgba(255,247,228,0.8)');
+  gr.addColorStop(0.44, 'rgba(255,222,178,0.2)');
   gr.addColorStop(1, 'rgba(255,210,150,0)');
   g.fillStyle = gr;
   g.fillRect(0, 0, 128, 128);
@@ -766,16 +214,16 @@ function makeContactShadow() {
   g.clearRect(0, 0, 256, 1024);
   const gr = g.createLinearGradient(0, 0, 0, 1024);
   gr.addColorStop(0, 'rgba(0,0,0,0)');
-  gr.addColorStop(0.1, 'rgba(0,0,0,0.5)');
-  gr.addColorStop(0.5, 'rgba(0,0,0,0.65)');
-  gr.addColorStop(0.9, 'rgba(0,0,0,0.5)');
+  gr.addColorStop(0.1, 'rgba(0,0,0,0.48)');
+  gr.addColorStop(0.5, 'rgba(0,0,0,0.62)');
+  gr.addColorStop(0.9, 'rgba(0,0,0,0.48)');
   gr.addColorStop(1, 'rgba(0,0,0,0)');
   g.fillStyle = gr;
   g.fillRect(0, 0, 256, 1024);
   const side = g.createLinearGradient(0, 0, 256, 0);
   side.addColorStop(0, 'rgba(0,0,0,0)');
-  side.addColorStop(0.24, 'rgba(0,0,0,1)');
-  side.addColorStop(0.76, 'rgba(0,0,0,1)');
+  side.addColorStop(0.22, 'rgba(0,0,0,1)');
+  side.addColorStop(0.78, 'rgba(0,0,0,1)');
   side.addColorStop(1, 'rgba(0,0,0,0)');
   g.globalCompositeOperation = 'destination-in';
   g.fillStyle = side;
@@ -783,6 +231,897 @@ function makeContactShadow() {
   return c;
 }
 
+function makeDestination(text = 'RAIDURG') {
+  const c = canvas2d(512, 96);
+  const g = c.getContext('2d');
+  g.fillStyle = '#080b0c';
+  g.fillRect(0, 0, 512, 96);
+  g.fillStyle = '#ff9a2e';
+  g.font = '600 50px "JetBrains Mono", monospace';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.shadowColor = 'rgba(255,140,30,0.85)';
+  g.shadowBlur = 12;
+  g.fillText(text, 256, 51);
+  g.shadowBlur = 0;
+  g.fillStyle = 'rgba(0,0,0,0.36)';
+  for (let y = 0; y < 96; y += 3) g.fillRect(0, y, 512, 1);
+  for (let x = 0; x < 512; x += 3) g.fillRect(x, 0, 1, 96);
+  return c;
+}
+
+// ---------------------------------------------------------------------------
+// layout
+//
+// Positions are car-local Z (metres, +Z towards the cab on a cab car).
+// The reference sheet gives three double doors per cab car, alternating with
+// three panoramic windows; the middle car carries four doors.
+// ---------------------------------------------------------------------------
+
+function carLayout(cabSign) {
+  // Four double doors per side on every car, with three panoramic windows
+  // between them.  Cab cars carry an extra driver's side window right behind
+  // the nose.
+  if (cabSign === 0) {
+    return {
+      cab: false,
+      doors: [-7.5, -2.5, 2.5, 7.5],
+      windows: [-5, 0, 5],
+      cabWindow: null,
+    };
+  }
+  return {
+    cab: true,
+    doors: [6.0, 1.4, -3.2, -7.8].map((z) => z * cabSign),
+    windows: [3.7, -0.9, -5.5].map((z) => z * cabSign),
+    cabWindow: 8.70 * cabSign,
+    sign: cabSign,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// side livery
+// ---------------------------------------------------------------------------
+
+function drawGlass(g, z, w, y0, y1, { panes = 3, cab = false } = {}) {
+  const X = g.__X;
+  const Y = g.__Y;
+  const x0 = Math.min(X(z - w / 2), X(z + w / 2));
+  const x1 = Math.max(X(z - w / 2), X(z + w / 2));
+  const yb = Y(y1);
+  const yt = Y(y0);
+  const pad = (x1 - x0) * 0.045;
+  const py = (yb - yt) * 0.05;
+  // gasket
+  g.fillStyle = '#080b0c';
+  roundRectPath(g, x0 - pad, yt - py, x1 - x0 + pad * 2, yb - yt + py * 2, Math.min(14, (x1 - x0) * 0.12));
+  g.fill();
+  // sky-lit glass
+  const gr = g.createLinearGradient(x0, yt, x1, yb);
+  if (cab) {
+    gr.addColorStop(0, '#24363d');
+    gr.addColorStop(0.4, '#162429');
+    gr.addColorStop(0.7, '#0d171b');
+    gr.addColorStop(1, '#18262b');
+  } else {
+    gr.addColorStop(0, '#22343b');
+    gr.addColorStop(0.3, '#31464d');
+    gr.addColorStop(0.55, '#101c20');
+    gr.addColorStop(0.8, '#17262b');
+    gr.addColorStop(1, '#0d161a');
+  }
+  g.fillStyle = gr;
+  roundRectPath(g, x0, yt, x1 - x0, yb - yt, Math.min(9, (x1 - x0) * 0.08));
+  g.fill();
+
+  // sky reflection sweep
+  g.save();
+  g.beginPath();
+  roundRectPath(g, x0, yt, x1 - x0, yb - yt, 8);
+  g.clip();
+  g.globalCompositeOperation = 'lighter';
+  g.globalAlpha = cab ? 0.16 : 0.14;
+  g.fillStyle = '#c9e4f0';
+  g.beginPath();
+  const sw = (x1 - x0) * 0.34;
+  g.moveTo(x0 + (x1 - x0) * 0.1, yt);
+  g.lineTo(x0 + (x1 - x0) * 0.1 + sw * 0.55, yt);
+  g.lineTo(x0 + (x1 - x0) * 0.1 + sw * 0.2, yb);
+  g.lineTo(x0 + (x1 - x0) * 0.1 - sw * 0.35, yb);
+  g.closePath();
+  g.fill();
+  g.restore();
+
+  // interior: warm ceiling, seat backs, poles
+  if (!cab) {
+    g.save();
+    roundRectPath(g, x0, yt, x1 - x0, yb - yt, 8);
+    g.clip();
+    g.fillStyle = 'rgba(58,44,30,0.35)';
+    g.fillRect(x0, yb - (yb - yt) * 0.28, x1 - x0, (yb - yt) * 0.28);
+    g.fillStyle = 'rgba(20,26,27,0.42)';
+    const n = 3;
+    for (let i = 0; i < n; i++) {
+      const bx = x0 + (x1 - x0) * (0.18 + i * 0.32);
+      g.fillRect(bx, yb - (yb - yt) * 0.32, Math.max(4, (x1 - x0) * 0.055), (yb - yt) * 0.3);
+    }
+    g.fillStyle = 'rgba(196,208,206,0.2)';
+    for (let i = 0; i < 2; i++) {
+      const px = x0 + (x1 - x0) * (0.3 + i * 0.4);
+      g.fillRect(px, yt + 2, Math.max(1, (x1 - x0) * 0.008), yb - yt - 4);
+    }
+    g.restore();
+  }
+
+  // slim mullions
+  if (panes > 1) {
+    for (let i = 1; i < panes; i++) {
+      const mx = x0 + ((x1 - x0) * i) / panes;
+      g.fillStyle = 'rgba(188,198,198,0.6)';
+      g.fillRect(mx - 1.1, yt, 2.2, yb - yt);
+      g.fillStyle = 'rgba(8,12,13,0.5)';
+      g.fillRect(mx - 2.2, yt, 1, yb - yt);
+    }
+  }
+  // top glint
+  g.fillStyle = 'rgba(230,240,242,0.26)';
+  g.fillRect(x0 + pad * 0.5, yt + 1, x1 - x0 - pad, 1.4);
+}
+
+function drawDoorOpening(g, z, w, y0, y1) {
+  const X = g.__X;
+  const Y = g.__Y;
+  const x0 = Math.min(X(z - w / 2), X(z + w / 2));
+  const x1 = Math.max(X(z - w / 2), X(z + w / 2));
+  const yb = Y(y1);
+  const yt = Y(y0);
+  // dark aperture
+  g.fillStyle = '#0a0e10';
+  g.fillRect(x0, yt, x1 - x0, yb - yt);
+  const inner = g.createLinearGradient(x0, yt, x0, yb);
+  inner.addColorStop(0, '#191f20');
+  inner.addColorStop(0.45, '#37352d');
+  inner.addColorStop(0.75, '#141818');
+  inner.addColorStop(1, '#090c0d');
+  g.fillStyle = inner;
+  g.fillRect(x0 + 2, yt + 2, x1 - x0 - 4, yb - yt - 4);
+  // warm saloon hint and silhouettes
+  g.fillStyle = 'rgba(255,196,110,0.1)';
+  g.fillRect(x0 + 6, yt + 10, x1 - x0 - 12, (yb - yt) * 0.55);
+  g.fillStyle = 'rgba(30,26,20,0.55)';
+  g.fillRect(x0 + 8, yb - (yb - yt) * 0.28, x1 - x0 - 16, (yb - yt) * 0.24);
+  for (let i = 0; i < 2; i++) {
+    const bx = x0 + (x1 - x0) * (0.28 + i * 0.4);
+    g.fillRect(bx, yb - (yb - yt) * 0.3, Math.max(3, (x1 - x0) * 0.05), (yb - yt) * 0.28);
+  }
+  // jambs
+  g.fillStyle = 'rgba(214,222,222,0.4)';
+  g.fillRect(x0, yt, 1.5, yb - yt);
+  g.fillRect(x1 - 1.5, yt, 1.5, yb - yt);
+  g.fillStyle = 'rgba(0,0,0,0.6)';
+  g.fillRect(x0, yt, (x1 - x0) * 0.02, yb - yt);
+}
+
+function makeSideLivery(color = '#0a5fa8', { cabSign = 0, mirror = false } = {}) {
+  const W = 2048;
+  const H = 512;
+  const c = canvas2d(W, H);
+  const g = c.getContext('2d');
+  const half = BODY_HALF;
+  const yTop = BODY_TOP;
+  const yBot = BODY_BOTTOM;
+  const X = (z) => (mirror ? (half - z) : (z + half)) / (half * 2) * W;
+  const Y = (y) => ((yTop - y) / (yTop - yBot)) * H;
+  g.__X = X;
+  g.__Y = Y;
+  const layout = carLayout(cabSign);
+
+  // brushed stainless base
+  const base = g.createLinearGradient(0, 0, 0, H);
+  base.addColorStop(0, '#e9edee');
+  base.addColorStop(0.18, '#e0e5e6');
+  base.addColorStop(0.58, '#d8ddde');
+  base.addColorStop(0.86, '#cbd1d2');
+  base.addColorStop(1, '#bcc2c3');
+  g.fillStyle = base;
+  g.fillRect(0, 0, W, H);
+
+  // longitudinal fluting
+  for (let y = 2; y < H; y += 7) {
+    g.fillStyle = 'rgba(255,255,255,0.2)';
+    g.fillRect(0, y, W, 1);
+    g.fillStyle = 'rgba(62,72,74,0.13)';
+    g.fillRect(0, y + 1, W, 1);
+  }
+
+  // panel seams
+  const seams = new Set();
+  for (const z of layout.doors) {
+    seams.add(z - DOOR_W / 2 - 0.35);
+    seams.add(z + DOOR_W / 2 + 0.35);
+  }
+  for (const z of layout.windows) {
+    seams.add(z - WINDOW_W / 2 - 0.28);
+    seams.add(z + WINDOW_W / 2 + 0.28);
+  }
+  if (layout.cabWindow != null) {
+    seams.add(layout.cabWindow - 0.62);
+    seams.add(layout.cabWindow + 0.62);
+  }
+  for (const z of seams) {
+    const x = X(z);
+    g.fillStyle = 'rgba(70,80,82,0.2)';
+    g.fillRect(x, 0, 1.6, H);
+    g.fillStyle = 'rgba(255,255,255,0.18)';
+    g.fillRect(x + 1.6, 0, 1, H);
+  }
+
+  // royal-blue cantrail band
+  const by0 = Y(BLUE_TOP);
+  const by1 = Y(BLUE_BOTTOM);
+  const band = g.createLinearGradient(0, by0, 0, by1);
+  band.addColorStop(0, '#0d6fc8');
+  band.addColorStop(0.45, color);
+  band.addColorStop(1, '#085394');
+  g.fillStyle = band;
+  g.fillRect(0, by0, W, by1 - by0);
+  // crisp top/bottom edges
+  g.fillStyle = 'rgba(255,255,255,0.35)';
+  g.fillRect(0, by0, W, 1.2);
+  g.fillStyle = 'rgba(6,44,80,0.9)';
+  g.fillRect(0, by1 - 2.4, W, 1.6);
+  // tiny amber marker lamps along the cantrail
+  for (let z = -half + 1.2; z < half - 1; z += 4.2) {
+    const x = X(z);
+    g.fillStyle = 'rgba(255,168,64,0.8)';
+    g.beginPath();
+    g.arc(x, Y(3.44), 1.6, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = 'rgba(255,220,160,0.3)';
+    g.beginPath();
+    g.arc(x, Y(3.44), 3.4, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  // door apertures (the sliding leaves sit over these)
+  for (const z of layout.doors) drawDoorOpening(g, z, DOOR_W, DOOR_BOTTOM, DOOR_TOP);
+
+  // panoramic saloon windows
+  for (const z of layout.windows) drawGlass(g, z, WINDOW_W, GLASS_BOTTOM, GLASS_TOP, { panes: 3 });
+
+  // cab side window — tall, narrow, black-framed, with a small sliding vent
+  if (layout.cabWindow != null) {
+    drawGlass(g, layout.cabWindow, 0.70, 2.06, 3.12, { panes: 2, cab: true });
+    const x0 = Math.min(X(layout.cabWindow - 0.35), X(layout.cabWindow + 0.35));
+    const x1 = Math.max(X(layout.cabWindow - 0.35), X(layout.cabWindow + 0.35));
+    g.strokeStyle = 'rgba(8,12,13,0.92)';
+    g.lineWidth = 3;
+    g.strokeRect(x0 - 1, Y(3.12) - 1, x1 - x0 + 2, Y(2.06) - Y(3.12) + 2);
+  }
+
+  // tricolour waist stripe — cab cars only, sweeping up over the nose.
+  // Order matches the reference: green over red over blue.
+  if (layout.cab) {
+    const sign = layout.sign;
+    const zStart = 9.62 * sign;
+    const zEnd = 6.55 * sign;
+    const xa = X(zStart);
+    const xb = X(zEnd);
+    g.save();
+    g.lineCap = 'round';
+    const stripes = [
+      [1.835, 5.2, '#12a150'],
+      [1.765, 7.0, '#e23227'],
+      [1.695, 8.2, '#0b5fae'],
+    ];
+    for (const [y, wdt, col] of stripes) {
+      const y0 = Y(y);
+      g.strokeStyle = col;
+      g.lineWidth = wdt;
+      g.beginPath();
+      g.moveTo(xb, y0);
+      g.lineTo(xa, y0);
+      g.stroke();
+    }
+    // taper the inboard ends so the lines fade out cleanly
+    const xt = X(zEnd + 0.35 * sign);
+    for (const [y, wdt, col] of stripes) {
+      g.strokeStyle = col;
+      g.lineWidth = wdt * 0.7;
+      g.beginPath();
+      g.moveTo(xb, Y(y));
+      g.lineTo(xt, Y(y));
+      g.stroke();
+    }
+    g.restore();
+  }
+
+  // HMR roundel + wordmark lockup in the panel between cab window and door 1
+  if (layout.cab) {
+    const sign = layout.sign;
+    const z = 7.55 * sign;
+    const cx = X(z);
+    drawHmrMark(g, cx, Y(2.96), 31, { light: true });
+    drawHmrWordmark(g, cx, Y(2.52), 1.1);
+  }
+
+  // unit numbers near each cab
+  if (layout.cab) {
+    const sign = layout.sign;
+    g.fillStyle = 'rgba(58,66,68,0.55)';
+    g.font = '600 12px "JetBrains Mono", monospace';
+    g.textAlign = 'left';
+    const x = Math.min(X(9.1 * sign), X(9.3 * sign));
+    g.fillText('HMRL 03', x, Y(1.22));
+  }
+
+  // waist seam
+  g.fillStyle = 'rgba(78,88,90,0.16)';
+  g.fillRect(0, Y(1.22), W, 1.4);
+  g.fillStyle = 'rgba(255,255,255,0.2)';
+  g.fillRect(0, Y(1.22) + 1.4, W, 1);
+
+  // lower edge grime
+  for (let i = 0; i < 240; i++) {
+    const x = Math.random() * W;
+    const y = Y(1.02 + Math.random() * 0.2);
+    g.fillStyle = `rgba(44,48,46,${Math.random() * 0.045})`;
+    g.fillRect(x, y, 2 + Math.random() * 10, 1 + Math.random() * 4);
+  }
+  // gentle vertical shading toward the bottom
+  const shade = g.createLinearGradient(0, Y(1.55), 0, H);
+  shade.addColorStop(0, 'rgba(30,34,35,0)');
+  shade.addColorStop(1, 'rgba(22,26,27,0.38)');
+  g.fillStyle = shade;
+  g.fillRect(0, Y(1.55), W, H - Y(1.55));
+
+  return c;
+}
+
+function makeSideEmissive(cabSign = 0, mirror = false) {
+  const W = 1024;
+  const H = 256;
+  const c = canvas2d(W, H);
+  const g = c.getContext('2d');
+  g.fillStyle = '#000000';
+  g.fillRect(0, 0, W, H);
+  const half = BODY_HALF;
+  const yTop = BODY_TOP;
+  const yBot = BODY_BOTTOM;
+  const X = (z) => ((mirror ? (half - z) : (z + half)) / (half * 2)) * W;
+  const Y = (y) => ((yTop - y) / (yTop - yBot)) * H;
+
+  const pane = (z, w, h, yMid, strength = 1) => {
+    const x0 = X(z - w / 2);
+    const x1 = X(z + w / 2);
+    const y0 = Y(yMid + h / 2);
+    const y1 = Y(yMid - h / 2);
+    g.save();
+    g.shadowColor = 'rgba(255,190,110,0.9)';
+    g.shadowBlur = 14;
+    const gr = g.createLinearGradient(0, y0, 0, y1);
+    gr.addColorStop(0, `rgba(255,226,180,${0.94 * strength})`);
+    gr.addColorStop(0.45, `rgba(255,206,142,${0.84 * strength})`);
+    gr.addColorStop(1, `rgba(214,150,84,${0.62 * strength})`);
+    g.fillStyle = gr;
+    g.fillRect(x0 + 2, y0 + 2, x1 - x0 - 4, y1 - y0 - 4);
+    g.fillStyle = `rgba(40,26,12,${0.42 * strength})`;
+    g.fillRect(x0 + 4, y1 - (y1 - y0) * 0.32, x1 - x0 - 8, 3);
+    g.restore();
+  };
+
+  const layout = carLayout(cabSign);
+  for (const z of layout.windows) pane(z, WINDOW_W, 1.04, 2.58);
+  if (layout.cabWindow != null) pane(layout.cabWindow, 0.70, 1.0, 2.6, 0.55);
+  for (const z of layout.doors) pane(z, 1.0, 1.35, 2.4, 0.55);
+  return c;
+}
+
+function makeDoorLeaf() {
+  const W = 256;
+  const H = 768;
+  const c = canvas2d(W, H);
+  const g = c.getContext('2d');
+  const base = g.createLinearGradient(0, 0, 0, H);
+  base.addColorStop(0, '#f0f3f3');
+  base.addColorStop(0.3, '#e3e8e8');
+  base.addColorStop(0.7, '#d5dbdb');
+  base.addColorStop(1, '#c3caca');
+  g.fillStyle = base;
+  g.fillRect(0, 0, W, H);
+  for (let y = 4; y < H; y += 10) {
+    g.fillStyle = 'rgba(255,255,255,0.14)';
+    g.fillRect(0, y, W, 1);
+    g.fillStyle = 'rgba(58,66,68,0.09)';
+    g.fillRect(0, y + 1, W, 1);
+  }
+  // glazed aperture — tall, narrow, rounded
+  g.fillStyle = '#090d0e';
+  roundRectPath(g, 58, 26, W - 116, H * 0.44, 10);
+  g.fill();
+  const gl = g.createLinearGradient(0, 26, W, H * 0.46);
+  gl.addColorStop(0, '#1b2a2f');
+  gl.addColorStop(0.35, '#30444a');
+  gl.addColorStop(0.55, '#101b1f');
+  gl.addColorStop(1, '#1d2c31');
+  g.fillStyle = gl;
+  roundRectPath(g, 63, 31, W - 126, H * 0.44 - 10, 8);
+  g.fill();
+  g.save();
+  g.globalCompositeOperation = 'lighter';
+  g.globalAlpha = 0.17;
+  g.fillStyle = '#d6ebf4';
+  g.beginPath();
+  g.moveTo(78, 32);
+  g.lineTo(126, 32);
+  g.lineTo(94, H * 0.44);
+  g.lineTo(66, H * 0.44);
+  g.closePath();
+  g.fill();
+  g.restore();
+  // centre seam
+  g.fillStyle = 'rgba(54,62,64,0.5)';
+  g.fillRect(W / 2 - 1, 0, 2, H);
+  g.fillStyle = 'rgba(22,26,27,0.55)';
+  g.fillRect(0, 0, 5, H);
+  g.fillRect(W - 5, 0, 5, H);
+  // waist seam
+  g.fillStyle = 'rgba(80,90,92,0.28)';
+  g.fillRect(0, H * 0.64, W, 2);
+  g.fillStyle = 'rgba(255,255,255,0.22)';
+  g.fillRect(0, H * 0.64 + 2, W, 1);
+  // small blue door sticker
+  g.fillStyle = '#1f74c4';
+  g.fillRect(W / 2 - 11, H * 0.655, 22, 15);
+  g.fillStyle = '#eaf4fb';
+  g.font = '700 10px "JetBrains Mono", monospace';
+  g.textAlign = 'center';
+  g.fillText('D', W / 2, H * 0.655 + 12);
+  // handle
+  g.fillStyle = '#1c2122';
+  roundRectPath(g, W - 46, H * 0.7, 10, 74, 5);
+  g.fill();
+  g.fillStyle = 'rgba(230,238,238,0.4)';
+  g.fillRect(W - 44, H * 0.7 + 4, 2, 66);
+  // kick plate
+  const kick = g.createLinearGradient(0, H * 0.84, 0, H);
+  kick.addColorStop(0, 'rgba(70,76,76,0.16)');
+  kick.addColorStop(1, 'rgba(40,46,46,0.46)');
+  g.fillStyle = kick;
+  g.fillRect(0, H * 0.84, W, H * 0.16);
+  return c;
+}
+
+function makeDoorEmissive() {
+  const W = 256;
+  const H = 768;
+  const c = canvas2d(W, H);
+  const g = c.getContext('2d');
+  g.fillStyle = '#000000';
+  g.fillRect(0, 0, W, H);
+  g.save();
+  g.shadowColor = 'rgba(255,196,120,0.9)';
+  g.shadowBlur = 18;
+  const gr = g.createLinearGradient(0, 28, 0, H * 0.46);
+  gr.addColorStop(0, 'rgba(255,224,172,0.7)');
+  gr.addColorStop(1, 'rgba(224,162,92,0.4)');
+  g.fillStyle = gr;
+  roundRectPath(g, 63, 31, W - 126, H * 0.44 - 10, 8);
+  g.fill();
+  g.restore();
+  return c;
+}
+
+// ---------------------------------------------------------------------------
+// front face (mapped onto the curved nose cap)
+// ---------------------------------------------------------------------------
+
+function makeFrontTexture(color = '#0b5fae') {
+  const W = 1024;
+  const H = 1024;
+  const c = canvas2d(W, H);
+  const g = c.getContext('2d');
+  // local space: x -1.31..1.31, y 0.90..3.72
+  const xw = 2.62;
+  const yb = BODY_BOTTOM;
+  const yt = BODY_TOP;
+  const X = (x) => ((x + xw / 2) / xw) * W;
+  const Y = (y) => ((yt - y) / (yt - yb)) * H;
+
+  // silver base
+  const base = g.createLinearGradient(0, 0, 0, H);
+  base.addColorStop(0, '#d6dbdc');
+  base.addColorStop(0.32, '#e8ecec');
+  base.addColorStop(0.72, '#dde2e3');
+  base.addColorStop(1, '#c2c8c9');
+  g.fillStyle = base;
+  g.fillRect(0, 0, W, H);
+  // faint brushing
+  for (let i = 0; i < 2600; i++) {
+    const v = Math.random() > 0.5 ? 255 : 60;
+    g.fillStyle = `rgba(${v},${v},${v},${Math.random() * 0.025})`;
+    g.fillRect(Math.random() * W, Math.random() * H, 40 + Math.random() * 200, 1);
+  }
+
+  // dark navy canopy — wraps the header and dives down the A-pillars
+  const canopy = g.createLinearGradient(0, 0, 0, Y(2.0));
+  canopy.addColorStop(0, '#0b1420');
+  canopy.addColorStop(0.6, '#10202c');
+  canopy.addColorStop(1, '#172b38');
+  g.fillStyle = canopy;
+  g.beginPath();
+  g.moveTo(0, 0);
+  g.lineTo(W, 0);
+  g.lineTo(W, Y(2.02));
+  g.bezierCurveTo(W * 0.975, Y(2.44), W * 0.958, Y(3.0), W * 0.90, Y(3.0));
+  g.lineTo(W * 0.10, Y(3.0));
+  g.bezierCurveTo(W * 0.042, Y(3.0), W * 0.025, Y(2.44), 0, Y(2.02));
+  g.closePath();
+  g.fill();
+
+  // royal-blue A-pillar strips wrapping in from the side band
+  for (const side of [-1, 1]) {
+    const ex = side < 0 ? -10 : W + 10;
+    const ix = side < 0 ? W * 0.052 : W * 0.948;
+    const gr = g.createLinearGradient(0, Y(3.62), 0, Y(1.66));
+    gr.addColorStop(0, '#0d6fc8');
+    gr.addColorStop(0.5, color);
+    gr.addColorStop(1, '#07518f');
+    g.fillStyle = gr;
+    g.beginPath();
+    g.moveTo(ex, Y(3.62));
+    g.lineTo(ix, Y(3.62));
+    g.lineTo(ix, Y(1.72));
+    g.quadraticCurveTo(ix, Y(1.66), ex, Y(1.66));
+    g.closePath();
+    g.fill();
+  }
+
+  // destination display recess (the emissive plane sits just proud of it)
+  g.fillStyle = '#070b0c';
+  roundRectPath(g, W * 0.345, Y(3.43), W * 0.31, Y(3.29) - Y(3.43), 6);
+  g.fill();
+
+  // windscreen — three panes in a heavy black frame, spanning nearly the
+  // full width so only a sliver of silver shows beside it
+  const x0t = W * 0.086;
+  const x1t = W * 0.914;
+  const x0b = W * 0.10;
+  const x1b = W * 0.90;
+  const wsTop = Y(3.02);
+  const wsBot = Y(1.98);
+  g.fillStyle = '#05090b';
+  g.lineJoin = 'round';
+  g.beginPath();
+  g.moveTo(x0t - 16, wsTop - 16);
+  g.lineTo(x1t + 16, wsTop - 16);
+  g.lineTo(x1b + 16, wsBot + 16);
+  g.lineTo(x0b - 16, wsBot + 16);
+  g.closePath();
+  g.fill();
+
+  // clip to a rounded screen aperture
+  g.save();
+  const wsPath = () => {
+    g.beginPath();
+    g.moveTo(x0t + 10, wsTop);
+    g.lineTo(x1t - 10, wsTop);
+    g.quadraticCurveTo(x1t, wsTop, x1t, wsTop + 18);
+    g.lineTo(x1b, wsBot - 18);
+    g.quadraticCurveTo(x1b, wsBot, x1b - 12, wsBot);
+    g.lineTo(x0b + 12, wsBot);
+    g.quadraticCurveTo(x0b, wsBot, x0b, wsBot - 18);
+    g.lineTo(x0t, wsTop + 18);
+    g.quadraticCurveTo(x0t, wsTop, x0t + 10, wsTop);
+    g.closePath();
+  };
+  wsPath();
+  g.clip();
+  const gl = g.createLinearGradient(x0t, wsTop, x1t, wsBot);
+  gl.addColorStop(0, '#2b4048');
+  gl.addColorStop(0.28, '#33494f');
+  gl.addColorStop(0.52, '#0d191d');
+  gl.addColorStop(0.78, '#081013');
+  gl.addColorStop(1, '#142126');
+  g.fillStyle = gl;
+  g.fillRect(0, wsTop, W, wsBot - wsTop);
+  // sky reflection
+  g.save();
+  g.globalCompositeOperation = 'lighter';
+  g.globalAlpha = 0.12;
+  g.fillStyle = '#cfe6f2';
+  g.beginPath();
+  g.moveTo(W * 0.13, wsTop);
+  g.lineTo(W * 0.32, wsTop);
+  g.lineTo(W * 0.20, wsBot);
+  g.lineTo(W * 0.09, wsBot);
+  g.closePath();
+  g.fill();
+  g.restore();
+  // wipers — one per pane
+  g.strokeStyle = 'rgba(6,9,10,0.92)';
+  g.lineWidth = 4;
+  for (const [a, b] of [[0.24, 0.16], [0.5, 0.5], [0.76, 0.84]]) {
+    g.beginPath();
+    g.moveTo(W * a, wsBot - 8);
+    g.lineTo(W * b, wsTop + 30);
+    g.stroke();
+  }
+  // heavy pillars between the three panes
+  for (const fx of [0.365, 0.635]) {
+    g.fillStyle = '#05090b';
+    g.fillRect(W * fx - 6, wsTop - 4, 12, wsBot - wsTop + 8);
+    g.fillStyle = 'rgba(150,168,172,0.22)';
+    g.fillRect(W * fx + 6, wsTop, 1.4, wsBot - wsTop);
+  }
+  g.restore();
+
+  // the "smile": red over thick green over blue, dipping at the centre
+  const smileTop = (x) =>
+    Y(1.96) + (1 - Math.pow((x - W / 2) / (W / 2), 2)) * (Y(1.90) - Y(1.96));
+
+  // blue nose band (carries the roundel and the headlamps)
+  const noseTop = (x) => smileTop(x) + 64;
+  const noseBot = Y(1.42);
+  const noseGrad = g.createLinearGradient(0, Y(1.9), 0, noseBot);
+  noseGrad.addColorStop(0, '#0d6fc8');
+  noseGrad.addColorStop(0.55, color);
+  noseGrad.addColorStop(1, '#07518f');
+  g.fillStyle = noseGrad;
+  g.beginPath();
+  for (let x = 0; x <= W; x += 8) {
+    const y = noseTop(x);
+    if (x === 0) g.moveTo(x, y);
+    else g.lineTo(x, y);
+  }
+  g.lineTo(W, noseBot);
+  g.lineTo(0, noseBot);
+  g.closePath();
+  g.fill();
+
+  // tricolour: thin red, thick green
+  const strokeSmile = (offset, width, stroke) => {
+    g.strokeStyle = stroke;
+    g.lineWidth = width;
+    g.lineCap = 'butt';
+    g.beginPath();
+    for (let x = -6; x <= W + 6; x += 8) {
+      const y = smileTop(x) + offset;
+      if (x === -6) g.moveTo(x, y);
+      else g.lineTo(x, y);
+    }
+    g.stroke();
+  };
+  strokeSmile(5, 10, '#e23227');
+  strokeSmile(41, 62, '#12a150');
+  // crisp light edge along the top of the green
+  g.strokeStyle = 'rgba(255,255,255,0.28)';
+  g.lineWidth = 1.6;
+  g.beginPath();
+  for (let x = 0; x <= W; x += 8) {
+    const y = smileTop(x) + 10;
+    if (x === 0) g.moveTo(x, y);
+    else g.lineTo(x, y);
+  }
+  g.stroke();
+
+  // headlight housings (the 3D lamps sit over these)
+  for (const sx of [-1, 1]) {
+    const cx = W * (0.5 + sx * 0.30);
+    const cy = Y(1.53);
+    g.fillStyle = '#0a0e0f';
+    roundRectPath(g, cx - W * 0.056, cy - H * 0.027, W * 0.112, H * 0.054, 8);
+    g.fill();
+    g.fillStyle = '#1b2123';
+    roundRectPath(g, cx - W * 0.047, cy - H * 0.02, W * 0.094, H * 0.04, 6);
+    g.fill();
+    // red marker inboard
+    g.fillStyle = '#8c130d';
+    g.beginPath();
+    g.arc(cx + W * 0.049, cy, W * 0.011, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  // HMR roundel in the blue nose band
+  drawHmrMark(g, W * 0.5, Y(1.575), W * 0.036, { light: true });
+  // small crest at the base of the screen
+  drawHmrMark(g, W * 0.5, Y(1.93), W * 0.014, { light: false, ring: false });
+
+  // upper marker lamps are 3D (see buildNose)
+
+  // lower valance shadow and coupler recess
+  const valance = g.createLinearGradient(0, Y(1.34), 0, H);
+  valance.addColorStop(0, 'rgba(90,98,99,0)');
+  valance.addColorStop(1, 'rgba(54,60,61,0.62)');
+  g.fillStyle = valance;
+  g.fillRect(0, Y(1.34), W, H - Y(1.34));
+  g.fillStyle = '#0a0d0e';
+  roundRectPath(g, W * 0.415, Y(1.16), W * 0.17, H * 0.048, 8);
+  g.fill();
+  g.fillStyle = '#121718';
+  roundRectPath(g, W * 0.428, Y(1.15), W * 0.144, H * 0.036, 6);
+  g.fill();
+  // lower seams and corner boxes
+  g.strokeStyle = 'rgba(70,80,82,0.25)';
+  g.lineWidth = 2;
+  for (const fx of [0.245, 0.755]) {
+    g.beginPath();
+    g.moveTo(W * fx, Y(1.4));
+    g.lineTo(W * fx, H);
+    g.stroke();
+  }
+  g.strokeStyle = 'rgba(70,80,82,0.2)';
+  g.beginPath();
+  g.moveTo(W * 0.17, Y(1.27));
+  g.lineTo(W * 0.83, Y(1.27));
+  g.stroke();
+  for (const sx of [-1, 1]) {
+    g.fillStyle = '#0c1011';
+    roundRectPath(g, W * (0.5 + sx * 0.33) - W * 0.035, Y(1.155), W * 0.07, H * 0.034, 4);
+    g.fill();
+  }
+  // unit number
+  g.fillStyle = 'rgba(55,62,64,0.6)';
+  g.font = '600 16px "JetBrains Mono", monospace';
+  g.textAlign = 'right';
+  g.fillText('HMR 03', W * 0.95, H * 0.97);
+
+  // weathering
+  for (let i = 0; i < 160; i++) {
+    g.fillStyle = `rgba(38,40,38,${Math.random() * 0.03})`;
+    g.fillRect(Math.random() * W, Y(1.0 + Math.random() * 0.3), 1 + Math.random() * 7, 2 + Math.random() * 18);
+  }
+  return c;
+}
+
+// The short side panel that wraps the nose: blue band sweeping down into the
+// front face, tricolour climbing around the corner.
+function makeNoseSideTexture(color = '#0b5fae') {
+  const W = 512;
+  const H = 512;
+  const c = canvas2d(W, H);
+  const g = c.getContext('2d');
+  const yTop = BODY_TOP;
+  const yBot = BODY_BOTTOM;
+  const Y = (y) => ((yTop - y) / (yTop - yBot)) * H;
+  const smooth = (a, b, x) => {
+    const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
+
+  const base = g.createLinearGradient(0, 0, 0, H);
+  base.addColorStop(0, '#eef2f2');
+  base.addColorStop(0.55, '#e2e7e7');
+  base.addColorStop(1, '#cfd5d6');
+  g.fillStyle = base;
+  g.fillRect(0, 0, W, H);
+  for (let y = 2; y < H; y += 7) {
+    g.fillStyle = 'rgba(255,255,255,0.16)';
+    g.fillRect(0, y, W, 1);
+    g.fillStyle = 'rgba(66,76,78,0.11)';
+    g.fillRect(0, y + 1, W, 1);
+  }
+
+  // dark navy canopy — only over the top shoulder, fading toward the body
+  {
+    const canopy = canvas2d(W, H);
+    const cg = canopy.getContext('2d');
+    const vg = cg.createLinearGradient(0, 0, 0, H * 0.46);
+    vg.addColorStop(0, 'rgba(14,25,34,1)');
+    vg.addColorStop(0.6, 'rgba(14,25,34,0.85)');
+    vg.addColorStop(1, 'rgba(14,25,34,0)');
+    cg.fillStyle = vg;
+    cg.fillRect(0, 0, W, H);
+    const hg = cg.createLinearGradient(0, 0, W, 0);
+    hg.addColorStop(0, 'rgba(0,0,0,0)');
+    hg.addColorStop(0.28, 'rgba(0,0,0,0)');
+    hg.addColorStop(0.7, 'rgba(0,0,0,0.95)');
+    hg.addColorStop(1, 'rgba(0,0,0,1)');
+    cg.globalCompositeOperation = 'destination-in';
+    cg.fillStyle = hg;
+    cg.fillRect(0, 0, W, H);
+    g.drawImage(canopy, 0, 0);
+  }
+
+  // royal-blue cantrail band, sweeping down the nose to the front corner
+  const topAt = (u) => BLUE_TOP + (1.80 - BLUE_TOP) * Math.pow(u, 1.3);
+  const botAt = (u) => BLUE_BOTTOM + (1.42 - BLUE_BOTTOM) * Math.pow(u, 1.3);
+  const band = g.createLinearGradient(0, Y(BLUE_TOP), 0, Y(1.42));
+  band.addColorStop(0, '#0d6fc8');
+  band.addColorStop(0.5, color);
+  band.addColorStop(1, '#085394');
+  g.fillStyle = band;
+  g.beginPath();
+  for (let i = 0; i <= 64; i++) {
+    const u = i / 64;
+    const x = u * W;
+    const y = Y(topAt(u));
+    if (i === 0) g.moveTo(x, y);
+    else g.lineTo(x, y);
+  }
+  for (let i = 64; i >= 0; i--) {
+    const u = i / 64;
+    g.lineTo(u * W, Y(botAt(u)));
+  }
+  g.closePath();
+  g.fill();
+  g.fillStyle = 'rgba(255,255,255,0.4)';
+  g.fillRect(0, Y(BLUE_BOTTOM) - 2, W * 0.3, 1.2);
+
+  // tricolour sweeping up around the nose (green over red over blue)
+  g.lineCap = 'butt';
+  const stripes = [
+    [1.835, 1.87, '#12a150', 5.2, 8.0],
+    [1.765, 1.79, '#e23227', 7.0, 9.5],
+    [1.695, 1.71, '#0b5fae', 8.2, 10.5],
+  ];
+  for (const [y0, y1, col, w0, w1] of stripes) {
+    g.strokeStyle = col;
+    const steps = 32;
+    for (let i = 0; i < steps; i++) {
+      const u = i / steps;
+      const x = u * W;
+      g.lineWidth = w0 + (w1 - w0) * u;
+      g.beginPath();
+      const tt = Math.pow(u, 1.3);
+      g.moveTo(x, Y(y0 + (y1 - y0) * tt));
+      g.lineTo(x + W / steps + 1, Y(y0 + (y1 - y0) * Math.pow(Math.min(1, u + 1 / steps), 1.3)));
+      g.stroke();
+    }
+  }
+
+  // shut line at the back edge
+  g.fillStyle = 'rgba(70,80,82,0.25)';
+  g.fillRect(0, 0, 2, H);
+  g.fillStyle = 'rgba(255,255,255,0.2)';
+  g.fillRect(2, 0, 1, H);
+  return c;
+}
+
+// Roof shoulder strip: stainless at the body, blending into the dark navy
+// canopy toward the windscreen, with the tail of the cantrail band wrapping
+// over the curve.
+function makeNoseRoofTexture(color = '#0b5fae') {
+  const W = 512;
+  const H = 128;
+  const c = canvas2d(W, H);
+  const g = c.getContext('2d');
+  const smooth = (a, b, x) => {
+    const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
+  const base = g.createLinearGradient(0, 0, 0, H);
+  base.addColorStop(0, '#c9d0d2');
+  base.addColorStop(0.5, '#dbe1e2');
+  base.addColorStop(1, '#eef2f2');
+  g.fillStyle = base;
+  g.fillRect(0, 0, W, H);
+  // canopy blend: silver at the body, dark at the front
+  const hg = g.createLinearGradient(0, 0, W, 0);
+  hg.addColorStop(0, 'rgba(14,25,34,0)');
+  hg.addColorStop(0.22, 'rgba(14,25,34,0)');
+  hg.addColorStop(0.72, 'rgba(14,25,34,0.98)');
+  hg.addColorStop(1, 'rgba(14,25,34,1)');
+  g.fillStyle = hg;
+  g.fillRect(0, 0, W, H);
+  // blue band tail across the lower shoulder, fading toward the front
+  const blue = g.createLinearGradient(0, H, 0, H * 0.35);
+  blue.addColorStop(0, '#0d6fc8');
+  blue.addColorStop(0.55, color);
+  blue.addColorStop(1, 'rgba(8,83,148,0)');
+  g.fillStyle = blue;
+  g.beginPath();
+  g.moveTo(0, H);
+  g.lineTo(0, H * 0.28);
+  g.quadraticCurveTo(W * 0.28, H * 0.3, W * 0.52, H * 0.78);
+  g.lineTo(W * 0.52, H);
+  g.closePath();
+  g.fill();
+  return c;
+}
+
+// ---------------------------------------------------------------------------
+// geometry helpers
 // ---------------------------------------------------------------------------
 
 function roundedShape(w, h, r) {
@@ -814,36 +1153,339 @@ function roundedPanelGeom(w, h, r, segments = 12) {
   return geom;
 }
 
+function beamBetween(mat, a, b, radius = 0.03, segments = 8) {
+  const d = new THREE.Vector3().subVectors(b, a);
+  const len = d.length();
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, segments), mat);
+  mesh.position.copy(a).addScaledVector(d, 0.5);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+  return mesh;
+}
+
+// ---------------------------------------------------------------------------
+// cab nose — lofted from the full body section to a rounded, raked front face
+// ---------------------------------------------------------------------------
+
+function buildNose(materials, frontMat, noseSideMat, noseRoofMat, textureData) {
+  const group = new THREE.Group();
+  const length = CAR_TIP - BODY_HALF; // 1.1 m
+  const rings = 7;
+  const sideCols = 7;   // across the flank height
+  const roofCols = 8;   // across the roof shoulder
+  const sections = [];
+
+  // parametric ring
+  for (let i = 0; i < rings; i++) {
+    const t = i / (rings - 1);
+    const s = t * t * (3 - 2 * t); // smoothstep
+    const w = 1.45 * (1 - 0.13 * Math.pow(t, 1.5));
+    const yb = BODY_BOTTOM + 0.18 * Math.pow(t, 1.6);
+    const yt = BODY_TOP - 0.09 * Math.pow(t, 1.4);
+    const r = 0.35 * (1 - 0.18 * t);
+    const z = BODY_HALF + length * t;
+    sections.push({ t, w, yb, yt, r, z });
+  }
+
+  const rake = 0.48;
+  const bulge = 0.03;
+  const zAt = (sec, y, x) => {
+    const yn = (y - sec.yb) / (sec.yt - sec.yb);
+    const xn = Math.min(1, Math.abs(x) / sec.w);
+    return sec.z - rake * (sec.t * sec.t) * yn + bulge * (1 - xn * xn) * Math.pow(sec.t, 3);
+  };
+
+  // --- side surfaces (right and left) ---
+  const sideVerts = [];
+  const sideUV = [];
+  const sideIdx = [];
+  const vPerCol = sideCols + 1;
+  for (const side of [-1, 1]) {
+    const base = sideVerts.length / 3;
+    for (let i = 0; i < rings; i++) {
+      const sec = sections[i];
+      for (let j = 0; j <= sideCols; j++) {
+        const v = j / sideCols;
+        const y = sec.yb + (sec.yt - sec.r - sec.yb) * v;
+        const x = side * sec.w;
+        sideVerts.push(x, y, zAt(sec, y, x));
+        sideUV.push(i / (rings - 1), (y - BODY_BOTTOM) / (BODY_TOP - BODY_BOTTOM));
+      }
+    }
+    for (let i = 0; i < rings - 1; i++) {
+      for (let j = 0; j < sideCols; j++) {
+        const a = base + i * vPerCol + j;
+        const b = a + 1;
+        const c = a + vPerCol;
+        const d = c + 1;
+        if (side > 0) sideIdx.push(a, c, b, b, c, d);
+        else sideIdx.push(a, b, c, b, d, c);
+      }
+    }
+  }
+  const sideGeom = new THREE.BufferGeometry();
+  sideGeom.setAttribute('position', new THREE.Float32BufferAttribute(sideVerts, 3));
+  sideGeom.setAttribute('uv', new THREE.Float32BufferAttribute(sideUV, 2));
+  sideGeom.setIndex(sideIdx);
+  sideGeom.computeVertexNormals();
+  const sideMesh = new THREE.Mesh(sideGeom, noseSideMat);
+  group.add(sideMesh);
+
+  // --- shoulder + roof (dark navy canopy) ---
+  const rVerts = [];
+  const rUV = [];
+  const rIdx = [];
+  const cols = roofCols + 1;
+  for (const side of [-1, 1]) {
+    const base = rVerts.length / 3;
+    for (let i = 0; i < rings; i++) {
+      const sec = sections[i];
+      for (let j = 0; j <= roofCols; j++) {
+        const a = (j / roofCols) * (Math.PI / 2);
+        // from the shoulder tangent to the crown
+        const x = side * (sec.w - sec.r + Math.cos(a) * sec.r);
+        const y = sec.yt - sec.r + Math.sin(a) * sec.r;
+        rVerts.push(x, y, zAt(sec, y, x));
+        rUV.push(i / (rings - 1), j / roofCols);
+      }
+    }
+    for (let i = 0; i < rings - 1; i++) {
+      for (let j = 0; j < roofCols; j++) {
+        const a = base + i * cols + j;
+        const b = a + 1;
+        const c = a + cols;
+        const d = c + 1;
+        if (side > 0) rIdx.push(a, c, b, b, c, d);
+        else rIdx.push(a, b, c, b, d, c);
+      }
+    }
+  }
+  const roofGeom = new THREE.BufferGeometry();
+  roofGeom.setAttribute('position', new THREE.Float32BufferAttribute(rVerts, 3));
+  roofGeom.setAttribute('uv', new THREE.Float32BufferAttribute(rUV, 2));
+  roofGeom.setIndex(rIdx);
+  roofGeom.computeVertexNormals();
+  const roofMesh = new THREE.Mesh(roofGeom, noseRoofMat);
+  group.add(roofMesh);
+
+  // fill the crown between the two shoulder strips with a shallow dome
+  const crownCols = 6;
+  const crownVerts = [];
+  const crownUV = [];
+  const crownIdx = [];
+  for (let i = 0; i < rings; i++) {
+    const sec = sections[i];
+    const halfCrown = Math.max(0.02, sec.w - sec.r);
+    for (let j = 0; j <= crownCols; j++) {
+      const x = -halfCrown + (2 * halfCrown * j) / crownCols;
+      const y = sec.yt + 0.025 * Math.cos((x / halfCrown) * Math.PI * 0.5);
+      crownVerts.push(x, y, zAt(sec, y, x));
+      crownUV.push(i / (rings - 1), 1);
+    }
+  }
+  for (let i = 0; i < rings - 1; i++) {
+    for (let j = 0; j < crownCols; j++) {
+      const a = i * (crownCols + 1) + j;
+      const b = a + 1;
+      const c = a + crownCols + 1;
+      const d = c + 1;
+      crownIdx.push(a, c, b, b, c, d);
+    }
+  }
+  const crownGeom = new THREE.BufferGeometry();
+  crownGeom.setAttribute('position', new THREE.Float32BufferAttribute(crownVerts, 3));
+  crownGeom.setAttribute('uv', new THREE.Float32BufferAttribute(crownUV, 2));
+  crownGeom.setIndex(crownIdx);
+  crownGeom.computeVertexNormals();
+  group.add(new THREE.Mesh(crownGeom, noseRoofMat));
+
+  // --- front face (rounded cap) ---
+  const last = sections[rings - 1];
+  const fxw = last.w;
+  const fyb = last.yb;
+  const fyt = last.yt;
+  const frontShape = roundedShape(2 * fxw, fyt - fyb, 0.42);
+  const frontGeom = new THREE.ShapeGeometry(frontShape, 22);
+  const fpos = frontGeom.attributes.position;
+  const fuv = frontGeom.attributes.uv;
+  for (let i = 0; i < fpos.count; i++) {
+    const x = fpos.getX(i);
+    const y = fpos.getY(i) + (fyb + fyt) / 2;
+    fpos.setY(i, y);
+    fpos.setZ(i, zAt(last, y, x));
+    fuv.setXY(i, (x + fxw) / (2 * fxw), (y - fyb) / (fyt - fyb));
+  }
+  fpos.needsUpdate = true;
+  fuv.needsUpdate = true;
+  frontGeom.computeVertexNormals();
+  const frontMesh = new THREE.Mesh(frontGeom, frontMat);
+  group.add(frontMesh);
+
+  // helper used by the overlays to sit on the curved face
+  const faceZ = (x, y) => zAt(last, y, x);
+
+  // --- 3D overlays ---
+  const zc = faceZ(0, 2.86);
+
+  // wipers
+  for (const sx of [-1, 1]) {
+    const arm = new THREE.Group();
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.66, 6), materials.rubber);
+    rod.rotation.z = Math.PI / 2;
+    rod.position.x = 0.3;
+    arm.add(rod);
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.018, 0.03), materials.rubber);
+    blade.position.set(0.4, 0.02, 0.01);
+    arm.add(blade);
+    arm.position.set(sx * 0.18, 2.52, zc + 0.03);
+    arm.rotation.z = sx > 0 ? -0.18 : 0.18;
+    arm.rotation.y = sx > 0 ? -0.12 : 0.12;
+    group.add(arm);
+  }
+
+  const glowMat = new THREE.MeshBasicMaterial({
+    map: textureData.glow,
+    color: 0xfff2d8,
+    transparent: true,
+    opacity: 0.22,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false,
+    side: THREE.DoubleSide,
+  });
+  const haloMat = new THREE.MeshBasicMaterial({
+    map: textureData.glow,
+    color: 0xffe7b4,
+    transparent: true,
+    opacity: 0.06,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false,
+    side: THREE.DoubleSide,
+  });
+
+  const headlights = [];
+  for (const sx of [-1, 1]) {
+    const hx = sx * 0.80;
+    const hy = 1.53;
+    const hz = faceZ(hx, hy);
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.14, 0.05), materials.lightHousing);
+    housing.position.set(hx, hy, hz + 0.008);
+    group.add(housing);
+    const lampMat = new THREE.MeshStandardMaterial({
+      color: 0xf7f9f3,
+      emissive: 0xfff3dc,
+      emissiveIntensity: 3.2,
+      roughness: 0.18,
+      metalness: 0.1,
+    });
+    const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.058, 0.03, 20), lampMat);
+    lamp.rotation.x = Math.PI / 2;
+    lamp.position.set(hx + sx * 0.045, hy, hz + 0.04);
+    group.add(lamp);
+    const barMat = new THREE.MeshStandardMaterial({
+      color: 0xf6faf8,
+      emissive: 0xdff4ff,
+      emissiveIntensity: 2.6,
+      roughness: 0.2,
+    });
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.038, 0.025), barMat);
+    bar.position.set(hx - sx * 0.075, hy, hz + 0.04);
+    group.add(bar);
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.7), glowMat);
+    glow.renderOrder = 6;
+    glow.position.set(hx, hy, hz + 0.05);
+    group.add(glow);
+    const halo = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.7), haloMat);
+    halo.renderOrder = 5;
+    halo.position.set(hx, hy, hz + 0.03);
+    group.add(halo);
+    headlights.push({ lampMat, barMat, glowMat, haloMat, head: false });
+  }
+
+  // upper red markers
+  for (const sx of [-1, 1]) {
+    const m = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.038, 0.038, 0.018, 14),
+      new THREE.MeshStandardMaterial({ color: 0x5a0e0b, emissive: 0xff2a1c, emissiveIntensity: 2.4, roughness: 0.3 })
+    );
+    m.rotation.x = Math.PI / 2;
+    m.position.set(sx * 0.62, 3.35, faceZ(sx * 0.62, 3.35) + 0.02);
+    group.add(m);
+  }
+
+  // destination display
+  const destMat = new THREE.MeshStandardMaterial({
+    color: 0x120b03,
+    emissive: 0xff9a2e,
+    emissiveMap: textureData.destination,
+    emissiveIntensity: 2.6,
+    roughness: 0.35,
+    metalness: 0.1,
+  });
+  const dest = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.1), destMat);
+  dest.position.set(0, 3.36, faceZ(0, 3.36) + 0.022);
+  group.add(dest);
+
+  // coupler
+  const coupler = new THREE.Group();
+  const head = new THREE.Mesh(new RoundedBoxGeometry(0.36, 0.26, 0.28, 3, 0.04), materials.bogieDark);
+  head.position.set(0, 0.82, 0.09);
+  coupler.add(head);
+  const draw = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.3, 10), materials.axle);
+  draw.rotation.x = Math.PI / 2;
+  draw.position.set(0, 0.84, -0.13);
+  coupler.add(draw);
+  for (const sx of [-0.12, 0.12]) {
+    const hose = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.3, 8), materials.rubber);
+    hose.rotation.x = Math.PI / 2.7;
+    hose.position.set(sx, 0.66, 0.02);
+    coupler.add(hose);
+  }
+  coupler.position.set(0, 0, CAR_TIP - 0.02);
+  group.add(coupler);
+
+  // side mirrors, mounted on the cab flanks just behind the nose
+  for (const sx of [-1, 1]) {
+    const mirror = new THREE.Group();
+    const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.018, 0.16, 8), materials.rubber);
+    stalk.rotation.z = sx * 1.15;
+    stalk.position.set(sx * 0.07, 0.0, 0);
+    mirror.add(stalk);
+    const pod = new THREE.Mesh(new RoundedBoxGeometry(0.07, 0.16, 0.1, 2, 0.022), materials.bogieDark);
+    pod.position.set(sx * 0.16, 0.02, 0);
+    mirror.add(pod);
+    const face = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.13, 0.13),
+      new THREE.MeshStandardMaterial({ color: 0x182226, metalness: 0.9, roughness: 0.08 })
+    );
+    face.rotation.y = -sx * Math.PI / 2;
+    face.position.set(sx * 0.196, 0.02, 0);
+    mirror.add(face);
+    mirror.position.set(sx * 1.47, 2.88, BODY_HALF - 0.42);
+    group.add(mirror);
+  }
+
+  return { group, zFront: faceZ(0, 2.5), headlights, destMat, faceZ };
+}
+
+// ---------------------------------------------------------------------------
+// bogies
+// ---------------------------------------------------------------------------
+
 function buildWheel(materials, radius) {
   const group = new THREE.Group();
-  const tyre = new THREE.Mesh(
-    new THREE.CylinderGeometry(radius, radius, 0.13, 26, 1),
-    materials.wheel
-  );
+  const tyre = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.125, 26, 1), materials.wheel);
   tyre.rotation.z = Math.PI / 2;
-  tyre.castShadow = true;
   group.add(tyre);
-
-  const rim = new THREE.Mesh(
-    new THREE.CylinderGeometry(radius * 0.7, radius * 0.7, 0.145, 26, 1),
-    materials.rim
-  );
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.7, radius * 0.7, 0.14, 26, 1), materials.rim);
   rim.rotation.z = Math.PI / 2;
   group.add(rim);
-
-  const hub = new THREE.Mesh(
-    new THREE.CylinderGeometry(radius * 0.28, radius * 0.28, 0.155, 18, 1),
-    materials.bogieDark
-  );
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.28, radius * 0.28, 0.15, 18, 1), materials.bogieDark);
   hub.rotation.z = Math.PI / 2;
   group.add(hub);
-
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2;
-    const bolt = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.022, 0.022, 0.16, 6),
-      materials.rim
-    );
+    const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.155, 6), materials.rim);
     bolt.rotation.z = Math.PI / 2;
     bolt.position.set(0, Math.cos(a) * radius * 0.38, Math.sin(a) * radius * 0.38);
     group.add(bolt);
@@ -853,33 +1495,24 @@ function buildWheel(materials, radius) {
 
 function buildBogie(materials) {
   const g = new THREE.Group();
-  const frame = new THREE.Mesh(
-    new THREE.BoxGeometry(2.32, 0.42, 2.65),
-    materials.bogie
-  );
-  frame.position.y = 0.57;
-  frame.castShadow = true;
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.44, 2.6), materials.bogie);
+  frame.position.y = 0.56;
   g.add(frame);
-
   for (const sx of [-1, 1]) {
-    const side = new THREE.Mesh(
-      new THREE.BoxGeometry(0.16, 0.56, 2.45),
-      materials.bogieDark
-    );
-    side.position.set(sx * 0.97, 0.56, 0);
+    const side = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.62, 2.5), materials.bogieDark);
+    side.position.set(sx * 0.97, 0.55, 0);
     g.add(side);
+    const damper = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.5, 10), materials.axle);
+    damper.position.set(sx * 0.99, 0.62, 0.52);
+    damper.rotation.x = 0.22;
+    g.add(damper);
   }
-
   const wheels = [];
-  for (const sz of [-0.92, 0.92]) {
-    const axle = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.055, 0.055, 1.55, 10),
-      materials.axle
-    );
+  for (const sz of [-0.9, 0.9]) {
+    const axle = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 1.52, 10), materials.axle);
     axle.rotation.z = Math.PI / 2;
     axle.position.set(0, TRAIN.wheelRadius, sz);
     g.add(axle);
-
     for (const sx of [-1, 1]) {
       const w = buildWheel(materials, TRAIN.wheelRadius);
       w.position.set(sx * TRAIN.gauge * 0.5, TRAIN.wheelRadius, sz);
@@ -887,483 +1520,197 @@ function buildBogie(materials) {
       g.add(w);
       wheels.push(w);
     }
-
-    // axle boxes
     for (const sx of [-1, 1]) {
-      const box = new THREE.Mesh(
-        new THREE.BoxGeometry(0.24, 0.28, 0.34),
-        materials.bogieDark
-      );
-      box.position.set(sx * 0.78, TRAIN.wheelRadius + 0.17, sz);
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.26, 0.32), materials.bogieDark);
+      box.position.set(sx * 0.78, TRAIN.wheelRadius + 0.16, sz);
       g.add(box);
     }
   }
-
-  // traction motors
-  for (const sz of [-0.5, 0.5]) {
-    const motor = new THREE.Mesh(
-      new THREE.BoxGeometry(0.52, 0.44, 0.7),
-      materials.motor
-    );
+  for (const sz of [-0.48, 0.48]) {
+    const motor = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.42, 0.68), materials.motor);
     motor.position.set(0, 0.72, sz);
     g.add(motor);
   }
-
-  // air springs
-  for (const sx of [-0.86, 0.86]) {
-    for (const sz of [-0.82, 0.82]) {
-      const spring = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.16, 0.19, 0.24, 12),
-        materials.spring
-      );
-      spring.position.set(sx, 0.92, sz);
+  for (const sx of [-0.84, 0.84]) {
+    for (const sz of [-0.8, 0.8]) {
+      const spring = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 0.22, 12), materials.spring);
+      spring.position.set(sx, 0.94, sz);
       g.add(spring);
     }
   }
-
   return { group: g, wheels };
 }
 
-function buildCab(materials, textures, frontTexture) {
-  const group = new THREE.Group();
-
-  const shape = roundedShape(2.78, 2.64, 0.2);
-  const extrude = new THREE.ExtrudeGeometry(shape, {
-    depth: 0.46,
-    bevelEnabled: true,
-    bevelThickness: 0.075,
-    bevelSize: 0.045,
-    bevelSegments: 3,
-    steps: 1,
-  });
-  extrude.computeBoundingBox();
-  const zFront = extrude.boundingBox.max.z;
-
-  const cap = new THREE.Mesh(extrude, materials.steel);
-  cap.position.y = 2.36;
-  cap.castShadow = true;
-  cap.receiveShadow = true;
-  group.add(cap);
-
-  // front livery panel
-  const panelGeom = roundedPanelGeom(2.78, 2.64, 0.2, 16);
-  const panel = new THREE.Mesh(
-    panelGeom,
-    new THREE.MeshStandardMaterial({
-      map: frontTexture,
-      metalness: 0.1,
-      roughness: 0.42,
-      envMapIntensity: 0.4,
-    })
-  );
-  panel.position.set(0, 2.36, zFront + 0.003);
-  group.add(panel);
-
-  // windscreen: three panes
-  const glassMat = materials.glass;
-  const pane = (w, h, x, y, r = 0.055) => {
-    const m = new THREE.Mesh(roundedPanelGeom(w, h, r, 10), glassMat);
-    m.position.set(x, y, zFront + 0.012);
-    group.add(m);
-  };
-  pane(0.83, 0.78, 0, 3.11);
-  pane(0.49, 0.75, -0.69, 3.09, 0.05);
-  pane(0.49, 0.75, 0.69, 3.09, 0.05);
-
-  // wipers
-  for (const sx of [-0.42, 0.42]) {
-    const arm = new THREE.Group();
-    const rod = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.011, 0.011, 0.64, 6),
-      materials.rubber
-    );
-    rod.rotation.z = Math.PI / 2;
-    rod.position.x = 0.28;
-    arm.add(rod);
-    const blade = new THREE.Mesh(
-      new THREE.BoxGeometry(0.55, 0.018, 0.03),
-      materials.rubber
-    );
-    blade.position.set(0.36, 0.02, 0.01);
-    arm.add(blade);
-    arm.position.set(sx, 2.79, zFront + 0.035);
-    arm.rotation.z = sx > 0 ? -0.28 : 0.28;
-    arm.rotation.y = sx > 0 ? -0.15 : 0.15;
-    group.add(arm);
-  }
-
-  // headlight housings + lamps
-  const headlights = [];
-  const glowMat = new THREE.MeshBasicMaterial({
-    map: textures.glow,
-    color: 0xfff2d8,
-    transparent: true,
-    opacity: 0.6,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    toneMapped: false,
-    side: THREE.DoubleSide,
-  });
-  const haloMat = new THREE.MeshBasicMaterial({
-    map: textures.glow,
-    color: 0xffe7b4,
-    transparent: true,
-    opacity: 0.2,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    toneMapped: false,
-    side: THREE.DoubleSide,
-  });
-  for (const sx of [-1, 1]) {
-    const housing = new THREE.Mesh(
-      new THREE.BoxGeometry(0.56, 0.27, 0.05),
-      materials.lightHousing
-    );
-    housing.position.set(sx * 0.72, 1.73, zFront + 0.015);
-    group.add(housing);
-
-    const lampMat = new THREE.MeshStandardMaterial({
-      color: 0xf2f4ef,
-      emissive: 0xfff3dc,
-      emissiveIntensity: 3.2,
-      roughness: 0.18,
-      metalness: 0.1,
-    });
-    const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.095, 0.035, 20), lampMat);
-    lamp.rotation.x = Math.PI / 2;
-    lamp.position.set(sx * 0.56, 1.73, zFront + 0.045);
-    group.add(lamp);
-
-    const barMat = new THREE.MeshStandardMaterial({
-      color: 0xf6faf8,
-      emissive: 0xdff4ff,
-      emissiveIntensity: 2.8,
-      roughness: 0.2,
-    });
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.07, 0.03), barMat);
-    bar.position.set(sx * 0.84, 1.73, zFront + 0.043);
-    group.add(bar);
-
-    // A billboard sprite cannot survive this custom projection layer (the
-    // real camera orientation lives in the projection matrix, not in
-    // matrixWorldInverse, so sprites end up edge-on). A plane on the cab face
-    // is both correct and reliable: head-on it blooms, from the side it hides.
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.7), glowMat);
-    glow.renderOrder = 6;
-    glow.position.set(sx * 0.7, 1.74, zFront + 0.06);
-    group.add(glow);
-
-    // A second, much wider and fainter halo so the lamps read as a light
-    // source and not just a bright decal, especially from the chase camera.
-    const halo = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 4.2), haloMat);
-    halo.renderOrder = 5;
-    halo.position.set(sx * 0.7, 1.74, zFront + 0.04);
-    group.add(halo);
-
-    headlights.push({ lampMat, barMat, glowMat, haloMat, head: false });
-  }
-
-  // upper red markers
-  for (const sx of [-1, 1]) {
-    const m = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.045, 0.045, 0.02, 14),
-      new THREE.MeshStandardMaterial({
-        color: 0x5a0e0b,
-        emissive: 0xff2a1c,
-        emissiveIntensity: 2.4,
-        roughness: 0.3,
-      })
-    );
-    m.rotation.x = Math.PI / 2;
-    m.position.set(sx * 0.62, 3.52, zFront + 0.02);
-    group.add(m);
-  }
-
-  // destination display
-  const destMat = new THREE.MeshStandardMaterial({
-    color: 0x120b03,
-    emissive: 0xff9a2e,
-    emissiveMap: textures.destination,
-    emissiveIntensity: 2.6,
-    roughness: 0.35,
-    metalness: 0.1,
-  });
-  const dest = new THREE.Mesh(new THREE.PlaneGeometry(0.94, 0.15), destMat);
-  dest.position.set(0, 3.45, zFront + 0.028);
-  group.add(dest);
-
-  // coupler
-  const coupler = new THREE.Group();
-  const head = new THREE.Mesh(
-    new RoundedBoxGeometry(0.38, 0.28, 0.3, 3, 0.04),
-    materials.bogieDark
-  );
-  head.position.set(0, 0.88, 0.09);
-  coupler.add(head);
-  const draw = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.055, 0.075, 0.32, 10),
-    materials.axle
-  );
-  draw.rotation.x = Math.PI / 2;
-  draw.position.set(0, 0.9, -0.14);
-  coupler.add(draw);
-  for (const sx of [-0.13, 0.13]) {
-    const hoseMat = new THREE.MeshStandardMaterial({ color: 0x1b1d1e, roughness: 0.7 });
-    const hose = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.34, 8), hoseMat);
-    hose.rotation.x = Math.PI / 2.8;
-    hose.position.set(sx, 0.72, 0.02);
-    coupler.add(hose);
-  }
-  coupler.position.set(0, 0, zFront + 0.02);
-  group.add(coupler);
-
-  // mirrors
-  for (const sx of [-1, 1]) {
-    const mirror = new THREE.Group();
-    const stalk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.018, 0.024, 0.3, 8),
-      materials.rubber
-    );
-    stalk.rotation.z = sx * 0.9;
-    stalk.position.x = sx * 0.1;
-    mirror.add(stalk);
-    const pod = new THREE.Mesh(
-      new RoundedBoxGeometry(0.12, 0.26, 0.08, 2, 0.026),
-      materials.bogieDark
-    );
-    pod.position.set(sx * 0.23, 0.05, 0);
-    mirror.add(pod);
-    const face = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.085, 0.2),
-      new THREE.MeshStandardMaterial({ color: 0x182226, metalness: 0.9, roughness: 0.08 })
-    );
-    face.position.set(sx * 0.23, 0.05, 0.043);
-    mirror.add(face);
-    mirror.position.set(sx * 1.02, 3.22, zFront - 0.36);
-    group.add(mirror);
-  }
-
-  return { group, zFront, headlights, destMat };
-}
+// ---------------------------------------------------------------------------
+// one car
+// ---------------------------------------------------------------------------
 
 function buildCar(materials, textures, texturesData, { index, cabPlus, cabMinus }) {
   const car = new THREE.Group();
   car.userData.wheels = [];
   car.userData.doors = [];
-  const half = TRAIN.shellLength / 2;
+  const cabSign = cabPlus ? 1 : cabMinus ? -1 : 0;
+  const layout = carLayout(cabSign);
 
-  // main shell
-  const shell = new THREE.Mesh(
-    new RoundedBoxGeometry(TRAIN.width - 0.02, 2.74, TRAIN.shellLength, 6, 0.2),
-    materials.steel
-  );
-  shell.position.y = 2.37;
+  // main shell — flat-ended body with a rounded roof shoulder
+  const shellGeom = new THREE.ExtrudeGeometry(roundedShape(TRAIN.width - 0.02, BODY_TOP - BODY_BOTTOM, 0.26), {
+    depth: BODY_HALF * 2,
+    bevelEnabled: false,
+    steps: 1,
+    curveSegments: 8,
+  });
+  shellGeom.translate(0, 0, -BODY_HALF);
+  const shell = new THREE.Mesh(shellGeom, materials.steel);
+  shell.position.y = (BODY_TOP + BODY_BOTTOM) / 2;
   shell.castShadow = true;
   shell.receiveShadow = true;
   car.add(shell);
 
-  // lower skirt / underframe
+  // lower underframe (sits below the stainless body)
   const skirt = new THREE.Mesh(
-    new RoundedBoxGeometry(2.72, 0.5, TRAIN.shellLength - 0.1, 3, 0.06),
+    new RoundedBoxGeometry(2.7, 0.16, TRAIN.shellLength - 0.45, 3, 0.03),
     materials.skirt
   );
-  skirt.position.y = 0.8;
+  skirt.position.y = 0.87;
   skirt.castShadow = true;
   car.add(skirt);
 
+  // painted stainless livery on both flanks
+  const sideMats = [];
+  for (const side of [-1, 1]) {
+    // side +1 needs the mirrored canvas (plane local +x maps to world -z)
+    const tex = side > 0 ? texturesData.sideMirror[index] : texturesData.side[index];
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex,
+      color: 0xe9eded,
+      emissiveMap: side > 0 ? texturesData.sideGlowMirror[index] : texturesData.sideGlow[index],
+      emissive: 0xffffff,
+      emissiveIntensity: 0,
+      roughness: 0.58,
+      metalness: 0.0,
+      envMapIntensity: 0.18,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    sideMats.push(mat);
+    const panel = new THREE.Mesh(new THREE.PlaneGeometry(BODY_HALF * 2, BODY_TOP - BODY_BOTTOM), mat);
+    panel.rotation.y = side * Math.PI / 2;
+    panel.position.set(side * (TRAIN.width / 2 + 0.02), (BODY_TOP + BODY_BOTTOM) / 2, 0);
+    car.add(panel);
+  }
 
-  // windows and doors
-  const glassGeo = (w, h, r = 0.09) => roundedPanelGeom(w, h, r, 10);
-  const windowFrameMat = materials.gasket;
-
+  // animated double doors
   const addDoor = (side, z) => {
-    const x = side * (TRAIN.width / 2 + 0.024);
-
-    // dark aperture
-    const aperture = new THREE.Mesh(
-      roundedPanelGeom(1.3, 1.96, 0.06, 8),
-      materials.aperture
-    );
+    const x = side * (TRAIN.width / 2 + 0.026);
+    // recessed aperture
+    const aperture = new THREE.Mesh(roundedPanelGeom(DOOR_W, DOOR_TOP - DOOR_BOTTOM, 0.045, 8), materials.aperture);
     aperture.rotation.y = side * Math.PI / 2;
-    aperture.position.set(x - side * 0.002, 2.2, z);
+    aperture.position.set(x - side * 0.006, (DOOR_TOP + DOOR_BOTTOM) / 2, z);
     car.add(aperture);
-
-    // dark frame around the door aperture
-    for (const zz of [-0.66, 0.66]) {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.018, 2.02, 0.035), materials.gasket);
-      bar.position.set(x + side * 0.004, 2.2, z + zz);
+    // slim jambs
+    for (const zz of [-DOOR_W / 2, DOOR_W / 2]) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.016, DOOR_TOP - DOOR_BOTTOM + 0.04, 0.03), materials.gasket);
+      bar.position.set(x + side * 0.004, (DOOR_TOP + DOOR_BOTTOM) / 2, z + zz);
       car.add(bar);
     }
-    for (const yy of [1.19, 3.21]) {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.035, 1.35), materials.gasket);
+    for (const yy of [DOOR_BOTTOM - 0.02, DOOR_TOP + 0.02]) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.03, DOOR_W + 0.05), materials.gasket);
       bar.position.set(x + side * 0.004, yy, z);
       car.add(bar);
     }
 
     for (const leafSide of [-1, 1]) {
       const leafGroup = new THREE.Group();
-      leafGroup.position.set(x, 2.2, z + leafSide * 0.312);
+      const baseZ = z + leafSide * (DOOR_LEAF / 2 - 0.008);
+      leafGroup.position.set(x, (DOOR_TOP + DOOR_BOTTOM) / 2, baseZ);
       leafGroup.userData.keep = true;
       car.add(leafGroup);
-
-      // Painted panel: steel frame, glazing and handle baked into one texture,
-      // so a whole leaf is a single draw call.
-      const leaf = new THREE.Mesh(
-        new RoundedBoxGeometry(0.05, 1.9, 0.615, 2, 0.02),
-        materials.doorLeaf
-      );
+      const leaf = new THREE.Mesh(new RoundedBoxGeometry(0.045, DOOR_TOP - DOOR_BOTTOM - 0.03, DOOR_LEAF - 0.012, 2, 0.018), materials.doorLeaf);
       leaf.position.set(side * 0.014, 0, 0);
       leaf.castShadow = true;
       leafGroup.add(leaf);
-
-      car.userData.doors.push({
-        group: leafGroup,
-        side,
-        leafSide,
-        baseZ: z + leafSide * 0.312,
-      });
+      car.userData.doors.push({ group: leafGroup, side, leafSide, baseZ });
     }
   };
-
-  // Painted stainless livery (windows, crest, fluting, blue band). The 3D
-  // door leaves remain separate so they can slide.
-  const sideMats = [];
   for (const side of [-1, 1]) {
-    const mat = new THREE.MeshStandardMaterial({
-      map: side < 0 ? texturesData.sideMirror[index] : texturesData.side[index],
-      emissiveMap: materials.sideGlowMap,
-      emissive: 0xffffff,
-      emissiveIntensity: 0,
-      // The livery is a painted flat surface, not a mirror. Keeping metalness
-      // at zero and the environment term low stops the pale sky from washing
-      // the blue band and the window band into one bright silver smear.
-      roughness: 0.66,
-      metalness: 0.0,
-      envMapIntensity: 0.16,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-      polygonOffsetUnits: -2,
-    });
-    sideMats.push(mat);
-    const panel = new THREE.Mesh(
-      new THREE.PlaneGeometry(TRAIN.shellLength - 0.04, 2.72),
-      mat
-    );
-    panel.rotation.y = side * Math.PI / 2;
-    // The shell is a rounded box whose flat flank is 1.44 m out. A big far
-    // plane means 1 mm of separation z-fights away, so the skin lives 2 cm
-    // proud of the body and the doors another 2 cm clear of that.
-    panel.position.set(side * (TRAIN.width / 2 + 0.02), 2.37, 0);
-    car.add(panel);
-    for (const z of TRAIN.doorCentres) addDoor(side, z);
+    for (const z of layout.doors) addDoor(side, z);
   }
 
   // roof
-  const roof = new THREE.Mesh(
-    new THREE.BoxGeometry(2.24, 0.035, TRAIN.shellLength - 0.4),
-    materials.roof
-  );
-  roof.position.y = 3.742;
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(2.55, 0.05, TRAIN.shellLength - 0.3), materials.roof);
+  roof.position.y = BODY_TOP + 0.025;
   roof.castShadow = true;
   car.add(roof);
 
   // roof equipment
-  for (const z of [-5.2, 5.2]) {
-    const ac = new THREE.Mesh(
-      new RoundedBoxGeometry(1.66, 0.27, 1.92, 3, 0.07),
-      materials.ac
-    );
-    ac.position.set(0, 3.9, z);
+  for (const z of [-5.0, 5.0]) {
+    const ac = new THREE.Mesh(new RoundedBoxGeometry(1.9, 0.32, 2.25, 3, 0.07), materials.ac);
+    ac.position.set(0, BODY_TOP + 0.19, z);
     ac.castShadow = true;
     car.add(ac);
-
-    const grill = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.28, 1.5),
-      materials.grille
-    );
+    const grill = new THREE.Mesh(new THREE.PlaneGeometry(1.55, 1.9), materials.grille);
     grill.rotation.x = -Math.PI / 2;
-    grill.position.set(0, 4.036, z);
+    grill.position.set(0, BODY_TOP + 0.355, z);
     car.add(grill);
-
     for (const sx of [-1, 1]) {
-      const louver = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.7, 0.17),
-        materials.grille
-      );
+      const louver = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.22), materials.grille);
       louver.rotation.y = sx * Math.PI / 2;
-      louver.position.set(sx * 0.834, 3.9, z);
+      louver.position.set(sx * 0.951, BODY_TOP + 0.19, z);
       car.add(louver);
     }
   }
-  const duct = new THREE.Mesh(
-    new THREE.BoxGeometry(0.14, 0.06, TRAIN.shellLength - 3.4),
-    materials.roofDark
-  );
-  duct.position.y = 3.77;
+  const duct = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.055, TRAIN.shellLength - 3.4), materials.roofDark);
+  duct.position.y = BODY_TOP + 0.045;
   car.add(duct);
-
-  // roof panel seams
-  for (let z = -half + 1.4; z <= half - 1.4; z += 2.6) {
-    const seam = new THREE.Mesh(
-      new THREE.BoxGeometry(2.2, 0.012, 0.035),
-      materials.roofDark
-    );
-    seam.position.set(0, 3.764, z);
-    car.add(seam);
-  }
-
-  // small roof boxes / antennas
   for (const [x, z, w, d] of [
-    [-0.62, -8.6, 0.52, 0.72],
-    [0.62, 8.6, 0.52, 0.72],
-    [0.35, -2.9, 0.28, 0.42],
+    [-0.6, -8.4, 0.46, 0.66],
+    [0.6, 8.4, 0.46, 0.66],
+    [0.32, -1.4, 0.24, 0.38],
   ]) {
-    const box = new THREE.Mesh(new RoundedBoxGeometry(w, 0.13, d, 2, 0.03), materials.ac);
-    box.position.set(x, 3.82, z);
-    box.castShadow = true;
+    const box = new THREE.Mesh(new RoundedBoxGeometry(w, 0.11, d, 2, 0.025), materials.ac);
+    box.position.set(x, BODY_TOP + 0.09, z);
     car.add(box);
   }
+  // dark cab roof panel + equipment
+  if (cabSign !== 0) {
+    const plate = new THREE.Mesh(new RoundedBoxGeometry(2.0, 0.055, 1.5, 2, 0.04), materials.cabRoof);
+    plate.position.set(0, BODY_TOP + 0.03, cabSign * (BODY_HALF - 0.55));
+    plate.castShadow = true;
+    car.add(plate);
+    const pod = new THREE.Mesh(new RoundedBoxGeometry(0.5, 0.12, 0.72, 2, 0.03), materials.roofDark);
+    pod.position.set(0, BODY_TOP + 0.12, cabSign * (BODY_HALF - 0.25));
+    car.add(pod);
+  }
 
-  // single-arm pantograph on the centre car
+  // pantograph on the middle car
   if (index === 1) {
     const panto = new THREE.Group();
     const insulator = new THREE.MeshStandardMaterial({ color: 0x33383a, roughness: 0.72 });
-    for (const z of [-0.92, 0.92]) {
-      const ins = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.28, 8), insulator);
-      ins.position.set(0, 3.9, z);
+    for (const z of [-0.9, 0.9]) {
+      const ins = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.105, 0.26, 8), insulator);
+      ins.position.set(0, BODY_TOP + 0.13, z);
       panto.add(ins);
     }
-    const baseY = 4.06;
-    panto.add(beamBetween(materials.axle, new THREE.Vector3(0, baseY, -0.92), new THREE.Vector3(0, baseY + 0.6, 0.18), 0.038));
-    panto.add(beamBetween(materials.axle, new THREE.Vector3(0, baseY, 0.92), new THREE.Vector3(0, baseY + 0.6, -0.18), 0.038));
-    panto.add(beamBetween(materials.axle, new THREE.Vector3(0, baseY + 0.6, 0.18), new THREE.Vector3(0, baseY + 1.02, 0.62), 0.026));
-    panto.add(beamBetween(materials.axle, new THREE.Vector3(0, baseY + 0.6, -0.18), new THREE.Vector3(0, baseY + 1.02, 0.62), 0.026));
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(1.46, 0.045, 0.1), materials.axle);
-    bar.position.set(0, baseY + 1.05, 0.62);
+    const baseY = BODY_TOP + 0.28;
+    panto.add(beamBetween(materials.axle, new THREE.Vector3(0, baseY, -0.9), new THREE.Vector3(0, baseY + 0.58, 0.16), 0.036));
+    panto.add(beamBetween(materials.axle, new THREE.Vector3(0, baseY, 0.9), new THREE.Vector3(0, baseY + 0.58, -0.16), 0.036));
+    panto.add(beamBetween(materials.axle, new THREE.Vector3(0, baseY + 0.58, 0.16), new THREE.Vector3(0, baseY + 1.0, 0.58), 0.024));
+    panto.add(beamBetween(materials.axle, new THREE.Vector3(0, baseY + 0.58, -0.16), new THREE.Vector3(0, baseY + 1.0, 0.58), 0.024));
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.045, 0.09), materials.axle);
+    bar.position.set(0, baseY + 1.03, 0.58);
     panto.add(bar);
-    const strip = new THREE.Mesh(
-      new THREE.BoxGeometry(1.32, 0.03, 0.06),
-      new THREE.MeshStandardMaterial({ color: 0x222627, roughness: 0.6 })
-    );
-    strip.position.set(0, baseY + 1.08, 0.62);
-    panto.add(strip);
     car.add(panto);
   }
 
   // underframe equipment
-  for (const z of [-5.8, 0, 5.8]) {
-    const eq = new THREE.Mesh(
-      new RoundedBoxGeometry(1.8, 0.38, 2.25, 2, 0.04),
-      materials.equipment
-    );
-    eq.position.set(0, 0.79, z);
+  for (const z of [-5.6, 0, 5.6]) {
+    const eq = new THREE.Mesh(new RoundedBoxGeometry(1.76, 0.28, 2.1, 2, 0.035), materials.equipment);
+    eq.position.set(0, 0.58, z);
     car.add(eq);
-    const g = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.5, 0.24),
-      materials.grille
-    );
+    const g = new THREE.Mesh(new THREE.PlaneGeometry(1.46, 0.2), materials.grille);
     g.rotation.x = Math.PI / 2;
-    g.position.set(0, 0.598, z);
+    g.position.set(0, 0.435, z);
     car.add(g);
   }
 
@@ -1379,43 +1726,40 @@ function buildCar(materials, textures, texturesData, { index, cabPlus, cabMinus 
 
   // end walls / gangway face
   const addEnd = (end) => {
-    const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(2.3, 2.4, 0.04),
-      materials.endPanel
-    );
-    wall.position.set(0, 2.2, end * (half + 0.015));
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(2.3, 2.5, 0.04), materials.endPanel);
+    wall.position.set(0, 2.18, end * (TRAIN.shellLength / 2 + 0.01));
     car.add(wall);
-    const door = new THREE.Mesh(
-      new THREE.BoxGeometry(0.78, 1.9, 0.03),
-      materials.doorSteel
-    );
-    door.position.set(0, 2.18, end * (half + 0.04));
+    const door = new THREE.Mesh(new THREE.BoxGeometry(0.78, 1.95, 0.03), materials.doorSteel);
+    door.position.set(0, 2.16, end * (TRAIN.shellLength / 2 + 0.03));
     car.add(door);
   };
   if (!cabPlus) addEnd(1);
   if (!cabMinus) addEnd(-1);
 
-  // cab shells
+  // cab nose + bellows
   let cabA = null;
   let cabB = null;
+  const noseSideMat = new THREE.MeshStandardMaterial({
+    map: texturesData.noseSide[cabSign === 0 ? 0 : cabSign > 0 ? 1 : 2],
+    roughness: 0.52,
+    metalness: 0.05,
+    envMapIntensity: 0.22,
+  });
   if (cabPlus) {
-    cabA = buildCab(materials, textures, texturesData.front);
-    cabA.group.position.z = half + 0.02;
+    cabA = buildNose(materials, texturesData.frontMat, noseSideMat, texturesData.noseRoofMat, textures);
     car.add(cabA.group);
   } else {
-    // bellows at the + end
     const bellows = buildBellows(materials);
-    bellows.position.z = half + 0.63;
+    bellows.position.z = BODY_HALF + 0.70;
     car.add(bellows);
   }
   if (cabMinus) {
-    cabB = buildCab(materials, textures, texturesData.front);
+    cabB = buildNose(materials, texturesData.frontMat, noseSideMat, texturesData.noseRoofMat, textures);
     cabB.group.rotation.y = Math.PI;
-    cabB.group.position.z = -half - 0.02;
     car.add(cabB.group);
   } else {
     const bellows = buildBellows(materials);
-    bellows.position.z = -half - 0.63;
+    bellows.position.z = -BODY_HALF - 0.70;
     car.add(bellows);
   }
 
@@ -1425,7 +1769,7 @@ function buildCar(materials, textures, texturesData, { index, cabPlus, cabMinus 
     new THREE.MeshBasicMaterial({
       map: textures.contact,
       transparent: true,
-      opacity: 0.42,
+      opacity: 0.4,
       depthWrite: false,
       color: 0x000000,
     })
@@ -1439,106 +1783,96 @@ function buildCar(materials, textures, texturesData, { index, cabPlus, cabMinus 
 
 function buildBellows(materials) {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(2.28, 2.62, 1.22), materials.bellows);
-  body.position.y = 2.18;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.16, 2.52, 1.1), materials.bellows);
+  body.position.y = 2.14;
   g.add(body);
-  // ribs
   for (let i = 0; i < 7; i++) {
-    const z = -0.54 + i * 0.18;
+    const z = -0.51 + i * 0.17;
     for (const sx of [-1, 1]) {
-      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.045, 2.64, 0.065), materials.bellowsRib);
-      rib.position.set(sx * 1.15, 2.18, z);
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.045, 2.54, 0.055), materials.bellowsRib);
+      rib.position.set(sx * 1.09, 2.14, z);
       g.add(rib);
     }
-    const top = new THREE.Mesh(new THREE.BoxGeometry(2.32, 0.04, 0.065), materials.bellowsRib);
-    top.position.set(0, 3.49, z);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.04, 0.055), materials.bellowsRib);
+    top.position.set(0, 3.41, z);
     g.add(top);
   }
   return g;
 }
 
+// ---------------------------------------------------------------------------
+// materials
+// ---------------------------------------------------------------------------
+
 function makeMaterials(anisotropy) {
-  const steelMap = texture(makeBrushedSteel(), { repeat: [2.6, 1], anisotropy });
+  const steelMap = texture(makeBrushedSteel(), { repeat: [2.4, 1], anisotropy });
   const roughMap = texture(makeSteelRoughness(), { srgb: false, repeat: [3, 1], anisotropy });
   const roofMap = texture(makeRoofTexture(), { repeat: [1, 5], anisotropy });
   const grilleMap = texture(makeGrille(), { anisotropy });
-  const sideGlowMap = texture(makeSideEmissive(), { anisotropy });
   const doorLeafMap = texture(makeDoorLeaf(), { anisotropy });
   const doorGlowMap = texture(makeDoorEmissive(), { anisotropy });
 
   const steel = new THREE.MeshPhysicalMaterial({
     map: steelMap,
-    color: 0xf6f9fa,
-    // Body shell only shows at the rounded shoulders and edges; a high
-    // metalness term there reflects the whole sky and makes the car look
-    // glassy. Lower it so the shell reads as painted stainless.
+    color: 0xe6ebeb,
     metalness: 0.38,
-    roughness: 0.38,
+    roughness: 0.4,
     roughnessMap: roughMap,
-    clearcoat: 0.16,
-    clearcoatRoughness: 0.34,
-    envMapIntensity: 0.85,
+    clearcoat: 0.12,
+    clearcoatRoughness: 0.36,
+    envMapIntensity: 0.72,
   });
+  steel.userData.castShadow = true;
+  steel.userData.receiveShadow = true;
 
   const doorSteel = new THREE.MeshPhysicalMaterial({
     map: steelMap,
-    color: 0xdfe3e4,
-    metalness: 0.8,
-    roughness: 0.33,
+    color: 0xe9eded,
+    metalness: 0.72,
+    roughness: 0.36,
     roughnessMap: roughMap,
-    clearcoat: 0.18,
-    envMapIntensity: 1.05,
+    clearcoat: 0.16,
+    envMapIntensity: 0.95,
   });
 
   const blue = new THREE.MeshPhysicalMaterial({
     color: COLORS.paintBlue,
     metalness: 0.1,
-    roughness: 0.22,
-    clearcoat: 0.9,
-    clearcoatRoughness: 0.1,
-    envMapIntensity: 1.4,
+    roughness: 0.28,
+    clearcoat: 0.85,
+    clearcoatRoughness: 0.12,
+    envMapIntensity: 1.1,
   });
 
   const glass = new THREE.MeshPhysicalMaterial({
-    color: 0x060d10,
+    color: 0x0a1417,
     metalness: 0.03,
-    roughness: 0.5,
-    clearcoat: 0.1,
-    clearcoatRoughness: 0.34,
-    envMapIntensity: 0.1,
-    emissive: 0x060f12,
+    roughness: 0.42,
+    clearcoat: 0.12,
+    clearcoatRoughness: 0.3,
+    envMapIntensity: 0.12,
+    emissive: 0x050d10,
     emissiveIntensity: 1,
   });
+
+  const cabRoof = new THREE.MeshStandardMaterial({ color: 0x121c24, roughness: 0.42, metalness: 0.25 });
+  cabRoof.userData.castShadow = true;
 
   return {
     steel,
     doorSteel,
     blue,
     glass,
+    cabRoof,
     gasket: new THREE.MeshStandardMaterial({ color: 0x090c0d, roughness: 0.55, metalness: 0.1 }),
     rubber: new THREE.MeshStandardMaterial({ color: 0x0a0c0d, roughness: 0.72 }),
     aperture: new THREE.MeshStandardMaterial({ color: 0x050708, roughness: 0.8 }),
-    skirt: new THREE.MeshStandardMaterial({ color: 0x2a2e2f, roughness: 0.55, metalness: 0.35 }),
+    skirt: new THREE.MeshStandardMaterial({ color: 0x343a3c, roughness: 0.6, metalness: 0.3 }),
     endPanel: new THREE.MeshStandardMaterial({ color: 0x1c1f20, roughness: 0.65, metalness: 0.2 }),
-    roof: new THREE.MeshStandardMaterial({
-      map: roofMap,
-      color: 0xcdd3d4,
-      roughness: 0.56,
-      metalness: 0.22,
-    }),
-    roofDark: new THREE.MeshStandardMaterial({ color: 0x4a5051, roughness: 0.62 }),
-    ac: new THREE.MeshStandardMaterial({
-      map: roofMap,
-      color: 0xb9c0c1,
-      roughness: 0.62,
-      metalness: 0.16,
-    }),
-    grille: new THREE.MeshStandardMaterial({
-      map: grilleMap,
-      color: 0xdfe4e4,
-      roughness: 0.62,
-      metalness: 0.2,
-    }),
+    roof: new THREE.MeshStandardMaterial({ map: roofMap, color: 0x9ba3a4, roughness: 0.62, metalness: 0.22 }),
+    roofDark: new THREE.MeshStandardMaterial({ color: 0x42484a, roughness: 0.66 }),
+    ac: new THREE.MeshStandardMaterial({ map: roofMap, color: 0x858d8f, roughness: 0.62, metalness: 0.2 }),
+    grille: new THREE.MeshStandardMaterial({ map: grilleMap, color: 0x8c9395, roughness: 0.66, metalness: 0.2 }),
     bogie: new THREE.MeshStandardMaterial({ color: 0x15181a, roughness: 0.63, metalness: 0.35 }),
     bogieDark: new THREE.MeshStandardMaterial({ color: 0x0c0e0f, roughness: 0.6, metalness: 0.35 }),
     motor: new THREE.MeshStandardMaterial({ color: 0x242829, roughness: 0.55, metalness: 0.5 }),
@@ -1546,57 +1880,76 @@ function makeMaterials(anisotropy) {
     wheel: new THREE.MeshStandardMaterial({ color: 0x1a1d1e, roughness: 0.55, metalness: 0.5 }),
     rim: new THREE.MeshStandardMaterial({ color: 0x777d7e, roughness: 0.28, metalness: 0.9 }),
     spring: new THREE.MeshStandardMaterial({ color: 0x2f3334, roughness: 0.5, metalness: 0.5 }),
-    equipment: new THREE.MeshStandardMaterial({ color: 0x3d4243, roughness: 0.58, metalness: 0.4 }),
-    bellows: new THREE.MeshStandardMaterial({ color: 0x0b0d0e, roughness: 0.86 }),
-    bellowsRib: new THREE.MeshStandardMaterial({ color: 0x171a1b, roughness: 0.8 }),
+    equipment: new THREE.MeshStandardMaterial({ color: 0x343a3c, roughness: 0.6, metalness: 0.4 }),
+    bellows: new THREE.MeshStandardMaterial({ color: 0x1d2224, roughness: 0.86 }),
+    bellowsRib: new THREE.MeshStandardMaterial({ color: 0x3a4144, roughness: 0.78 }),
     lightHousing: new THREE.MeshStandardMaterial({ color: 0x121617, roughness: 0.35, metalness: 0.65 }),
-    sideDecal: new THREE.MeshStandardMaterial({
-      map: texture(makeSideDecal(), { anisotropy }),
-      transparent: true,
-      roughness: 0.42,
-      metalness: 0.15,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-    }),
-    sideGlowMap,
     doorLeaf: new THREE.MeshPhysicalMaterial({
       map: doorLeafMap,
       emissiveMap: doorGlowMap,
       emissive: 0xffffff,
       emissiveIntensity: 0,
-      metalness: 0.5,
-      roughness: 0.34,
-      envMapIntensity: 1.0,
+      metalness: 0.4,
+      roughness: 0.38,
+      envMapIntensity: 0.85,
     }),
   };
 }
 
+// ---------------------------------------------------------------------------
+// public: detailed set
 // ---------------------------------------------------------------------------
 
 export function createTrain({ anisotropy = 8, color = '#0b5fae' } = {}) {
   const materials = makeMaterials(anisotropy);
   const lineTint = new THREE.Color(color);
   materials.blue.color.copy(lineTint);
-  const frontCanvas = makeFrontTexture(color);
+
   const destinations = {
     RAIDURG: texture(makeDestination('RAIDURG'), { anisotropy }),
     NAGOLE: texture(makeDestination('NAGOLE'), { anisotropy }),
   };
-  const sideTextures = [0, 1, 2].map((carIndex) =>
-    texture(makeSideLivery(color, { carIndex }), { anisotropy })
-  );
-  const sideMirrors = sideTextures.map((t) => {
-    const m = t.clone();
-    m.wrapS = THREE.RepeatWrapping;
-    m.repeat.x = -1;
-    m.offset.x = 1;
-    m.needsUpdate = true;
-    return m;
+  const frontTexture = texture(makeFrontTexture(color), { anisotropy });
+  const frontMat = new THREE.MeshStandardMaterial({
+    map: frontTexture,
+    metalness: 0.1,
+    roughness: 0.48,
+    envMapIntensity: 0.35,
   });
+  frontMat.userData.castShadow = true;
+
+  const noseRoofMat = new THREE.MeshStandardMaterial({
+    map: texture(makeNoseRoofTexture(color), { anisotropy }),
+    metalness: 0.18,
+    roughness: 0.5,
+    envMapIntensity: 0.3,
+  });
+  noseRoofMat.userData.castShadow = true;
+
+  // side canvases per car and per orientation (text reads correctly on both
+  // sides; the plane's U axis is reversed on the +x flank).
+  const side = [];
+  const sideMirror = [];
+  const sideGlow = [];
+  const sideGlowMirror = [];
+  const noseSide = [];
+  const layouts = [-1, 0, 1]; // rear cab, middle, lead cab
+  for (const cabSign of layouts) {
+    side.push(texture(makeSideLivery(color, { cabSign, mirror: false }), { anisotropy }));
+    sideMirror.push(texture(makeSideLivery(color, { cabSign, mirror: true }), { anisotropy }));
+    sideGlow.push(texture(makeSideEmissive(cabSign, false), { anisotropy }));
+    sideGlowMirror.push(texture(makeSideEmissive(cabSign, true), { anisotropy }));
+    noseSide.push(texture(makeNoseSideTexture(color), { anisotropy }));
+  }
+
   const texturesData = {
-    front: texture(frontCanvas, { anisotropy }),
-    side: sideTextures,
-    sideMirror: sideMirrors,
+    frontMat,
+    noseRoofMat,
+    side,
+    sideMirror,
+    sideGlow,
+    sideGlowMirror,
+    noseSide,
   };
   const textures = {
     glow: texture(makeGlow(), { anisotropy }),
@@ -1614,10 +1967,7 @@ export function createTrain({ anisotropy = 8, color = '#0b5fae' } = {}) {
       cabMinus: isRear,
     });
     built.index = i;
-    built.offset = (i - 1) * TRAIN.carSpacing;
     built.wheels = [];
-    // Collapse the ~150 static meshes per car into one mesh per material.
-    // Door leaves stay separate so they can slide.
     const packed = mergeByMaterial(built.group);
     packed.name = `car-${i}`;
     built.group = packed;
@@ -1633,7 +1983,7 @@ export function createTrain({ anisotropy = 8, color = '#0b5fae' } = {}) {
     for (const light of cab.headlights) {
       light.head = head;
       light.lampMat.emissive.setHex(head ? 0xfff3dc : tail ? 0xff1a12 : 0x0a0a0a);
-      light.lampMat.emissiveIntensity = head ? 5.2 : tail ? 3.6 : 0;
+      light.lampMat.emissiveIntensity = head ? 3.8 : tail ? 3.0 : 0;
       light.barMat.emissive.setHex(head ? 0xdff4ff : tail ? 0x9b0d08 : 0x050505);
       light.barMat.emissiveIntensity = head ? 3.2 : tail ? 0.8 : 0;
       light.glowMat.color.setHex(head ? 0xfff2d8 : 0xff2a1e);
@@ -1651,7 +2001,7 @@ export function createTrain({ anisotropy = 8, color = '#0b5fae' } = {}) {
             : 0;
       }
     }
-    cab.destMat.emissiveIntensity = head ? 2.8 : 0.18;
+    if (cab.destMat) cab.destMat.emissiveIntensity = head ? 2.8 : 0.18;
   };
   setCabMode(cars[2].cabA, 'head');
   setCabMode(cars[0].cabB, 'tail');
@@ -1664,7 +2014,7 @@ export function createTrain({ anisotropy = 8, color = '#0b5fae' } = {}) {
     glassEmissive: new THREE.Color(0x3a2a16),
     glassColor: new THREE.Color(0x1a140c),
     steelEmissive: new THREE.Color(0x1a2330),
-    sideColor: new THREE.Color(0x9aa2a6),
+    sideColor: new THREE.Color(0xa6aeb2),
   };
 
   return {
@@ -1673,7 +2023,6 @@ export function createTrain({ anisotropy = 8, color = '#0b5fae' } = {}) {
     materials,
     setCabMode,
     setMode(direction = 1) {
-      // direction +1: leading cab is the +Z cab of the last car
       setCabMode(direction > 0 ? cars[2].cabA : cars[0].cabB, 'head');
       setCabMode(direction > 0 ? cars[0].cabB : cars[2].cabA, 'tail');
     },
@@ -1691,45 +2040,40 @@ export function createTrain({ anisotropy = 8, color = '#0b5fae' } = {}) {
       const o = THREE.MathUtils.clamp(openness, 0, 1);
       for (const car of cars) {
         for (const door of car.doors) {
-          door.group.position.z = door.baseZ + door.leafSide * o * 0.64;
+          door.group.position.z = door.baseZ + door.leafSide * o * (DOOR_LEAF + 0.01);
         }
       }
     },
     setNight(night) {
       this.setNightFactor(night ? 1 : 0);
     },
-    // Continuous 0..1 night factor so the day ↔ night crossfade reaches the
-    // train at the same speed as the light rig. Nothing here is an on/off
-    // switch, which is what used to make the set pop between two looks.
     setNightFactor(k) {
       const t = THREE.MathUtils.clamp(k, 0, 1);
       const lerp = THREE.MathUtils.lerp;
       lampNight = t;
 
-      materials.glass.emissive.setHex(0x060f12).lerp(NIGHT.glassEmissive, t);
+      materials.glass.emissive.setHex(0x050d10).lerp(NIGHT.glassEmissive, t);
       materials.glass.emissiveIntensity = lerp(1, 1.25, t);
-      materials.glass.color.setHex(0x081114).lerp(NIGHT.glassColor, t);
+      materials.glass.color.setHex(0x0a1417).lerp(NIGHT.glassColor, t);
       materials.doorLeaf.emissiveIntensity = 0.85 * t;
 
-      // At night the stainless picks up the city: a faint cool emissive plus a
-      // stronger environment term keeps the body from going pure black.
       materials.steel.emissive.setHex(0x000000).lerp(NIGHT.steelEmissive, t);
       materials.steel.emissiveIntensity = 0.6 * t;
-      materials.steel.envMapIntensity = lerp(0.85, 1.1, t);
+      materials.steel.envMapIntensity = lerp(0.72, 1.05, t);
 
       for (const car of cars) {
         for (const m of car.sideMats || []) {
-          m.emissiveIntensity = 0.95 * t;
-          m.envMapIntensity = lerp(0.16, 0.3, t);
+          m.emissiveIntensity = 0.92 * t;
+          m.envMapIntensity = lerp(0.18, 0.3, t);
           m.color.setHex(0xffffff).lerp(NIGHT.sideColor, t);
         }
         for (const cab of [car.cabA, car.cabB]) {
           if (cab && cab.destMat) cab.destMat.emissiveIntensity = lerp(0.18, 2.4, t);
           if (!cab) continue;
           for (const light of cab.headlights) {
-            light.glowMat.opacity = light.head ? lerp(0.5, 0.9, t) : lerp(0.24, 0.55, t);
+            light.glowMat.opacity = light.head ? lerp(0.2, 0.9, t) : lerp(0.14, 0.55, t);
             if (light.haloMat) {
-              light.haloMat.opacity = light.head ? lerp(0.14, 0.32, t) : lerp(0.06, 0.18, t);
+              light.haloMat.opacity = light.head ? lerp(0.05, 0.32, t) : lerp(0.03, 0.18, t);
             }
           }
         }
@@ -1739,8 +2083,7 @@ export function createTrain({ anisotropy = 8, color = '#0b5fae' } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Low-detail set used for every train that is not the one being followed.
-// Four merged meshes for the whole 3-car set.
+// low-detail proxy — kept in sync with the new formation
 // ---------------------------------------------------------------------------
 
 export function createTrainProxy({ color = '#0b5fae' } = {}) {
@@ -1756,7 +2099,7 @@ export function createTrainProxy({ color = '#0b5fae' } = {}) {
   const headMat = new THREE.MeshBasicMaterial({ color: 0x161310, toneMapped: false });
   const tailMat = new THREE.MeshBasicMaterial({ color: 0x2a0705, toneMapped: false });
 
-  const silver = new THREE.Color(0xd8dcdd);
+  const silver = new THREE.Color(0xe2e6e7);
   const glass = new THREE.Color(0x0b1518);
   const accent = new THREE.Color(color);
   const dark = new THREE.Color(0x23282a);
@@ -1775,24 +2118,36 @@ export function createTrainProxy({ color = '#0b5fae' } = {}) {
 
   const cars = [];
   for (let i = 0; i < 3; i++) {
+    const cabSign = i === 0 ? -1 : i === 2 ? 1 : 0;
     const cz = (i - 1) * TRAIN.carSpacing;
+    const layout = carLayout(cabSign);
     const parts = [];
-    parts.push(paint(new THREE.BoxGeometry(TRAIN.width, 2.6, TRAIN.shellLength).translate(0, 2.34, cz), silver));
-    parts.push(paint(new THREE.BoxGeometry(2.5, 0.14, TRAIN.shellLength).translate(0, 3.7, cz), silver));
-    parts.push(paint(new THREE.BoxGeometry(TRAIN.width + 0.015, 1.04, TRAIN.shellLength - 3).translate(0, 2.58, cz), glass));
-    parts.push(paint(new THREE.BoxGeometry(TRAIN.width + 0.02, 0.1, TRAIN.shellLength - 0.1).translate(0, 3.1, cz), accent));
-    parts.push(paint(new THREE.BoxGeometry(TRAIN.width + 0.018, 0.46, TRAIN.shellLength - 0.1).translate(0, 3.38, cz), accent));
-    parts.push(paint(new THREE.BoxGeometry(2.66, 0.5, TRAIN.shellLength - 0.2).translate(0, 0.8, cz), dark));
-    parts.push(paint(new THREE.BoxGeometry(2.3, 0.42, 2.6).translate(0, 0.62, cz - 7.9), dark));
-    parts.push(paint(new THREE.BoxGeometry(2.3, 0.42, 2.6).translate(0, 0.62, cz + 7.9), dark));
-    for (const dz of TRAIN.doorCentres) {
-      parts.push(paint(new THREE.BoxGeometry(TRAIN.width + 0.022, 1.9, 1.3).translate(0, 2.2, cz + dz), glass));
+    parts.push(paint(new THREE.BoxGeometry(TRAIN.width, 2.82, TRAIN.shellLength).translate(0, 2.31, cz), silver));
+    parts.push(paint(new THREE.BoxGeometry(2.3, 0.14, TRAIN.shellLength).translate(0, 3.68, cz), silver));
+    parts.push(paint(new THREE.BoxGeometry(TRAIN.width + 0.015, 1.04, TRAIN.shellLength - 0.4).translate(0, 2.58, cz), glass));
+    parts.push(paint(new THREE.BoxGeometry(TRAIN.width + 0.02, 0.46, TRAIN.shellLength - 0.1).translate(0, 3.42, cz), accent));
+    parts.push(paint(new THREE.BoxGeometry(2.66, 0.4, TRAIN.shellLength - 0.2).translate(0, 0.72, cz), dark));
+    parts.push(paint(new THREE.BoxGeometry(2.3, 0.4, 2.6).translate(0, 0.62, cz - 7.9), dark));
+    parts.push(paint(new THREE.BoxGeometry(2.3, 0.4, 2.6).translate(0, 0.62, cz + 7.9), dark));
+    // window band cut-outs (painted over by silver between doors)
+    for (let z = -9; z <= 9; z += 3.6) {
+      parts.push(paint(new THREE.BoxGeometry(TRAIN.width + 0.018, 1.18, 2.5).translate(0, 2.58, cz + z), silver));
     }
-    // cab ends
+    for (const dz of layout.windows) {
+      parts.push(paint(new THREE.BoxGeometry(TRAIN.width + 0.03, 1.04, WINDOW_W).translate(0, 2.58, cz + dz), glass));
+    }
+    for (const dz of layout.doors) {
+      parts.push(paint(new THREE.BoxGeometry(TRAIN.width + 0.03, 2.15, DOOR_W).translate(0, 2.1, cz + dz), glass));
+    }
+    // cab ends: dark canopy and blue wrap
     for (const end of [-1, 1]) {
-      const z = cz + end * (TRAIN.shellLength / 2 + 0.04);
-      parts.push(paint(new THREE.BoxGeometry(2.2, 1.02, 0.14).translate(0, 2.72, z), glass));
-      parts.push(paint(new THREE.BoxGeometry(2.72, 0.34, 0.16).translate(0, 3.52, z), accent));
+      const isCab = (end > 0 && cabSign > 0) || (end < 0 && cabSign < 0);
+      if (!isCab) continue;
+      const z = cz + end * (TRAIN.shellLength / 2 + 0.45);
+      parts.push(paint(new THREE.BoxGeometry(2.6, 2.5, 0.9).translate(0, 2.25, z), silver));
+      parts.push(paint(new THREE.BoxGeometry(2.62, 0.5, 0.92).translate(0, 3.42, z), accent));
+      parts.push(paint(new THREE.BoxGeometry(2.3, 0.55, 0.94).translate(0, 3.42, z), dark));
+      parts.push(paint(new THREE.BoxGeometry(2.1, 0.72, 0.05).translate(0, 2.85, z - end * 0.46), glass));
     }
     const mesh = new THREE.Mesh(mergeGeometries(parts), mat);
     mesh.castShadow = true;
@@ -1802,10 +2157,7 @@ export function createTrainProxy({ color = '#0b5fae' } = {}) {
     parts.forEach((g) => g.dispose());
   }
 
-  // Lit saloon band. The proxy merges to a single vertex-coloured mesh, so it
-  // cannot vary its emissive per part; these thin additive quads sit just proud
-  // of each window bay and switch on at night, which is what makes the other
-  // sets read as trains in service rather than black boxes.
+  // Lit saloon band — one quad per window bay.
   const glowMat = new THREE.MeshBasicMaterial({
     color: 0xffc98a,
     transparent: true,
@@ -1818,12 +2170,23 @@ export function createTrainProxy({ color = '#0b5fae' } = {}) {
   const glowParts = [];
   for (let i = 0; i < 3; i++) {
     const cz = (i - 1) * TRAIN.carSpacing;
-    for (const wz of TRAIN.windowCentres) {
+    const cabSign = i === 0 ? -1 : i === 2 ? 1 : 0;
+    const layout = carLayout(cabSign);
+    for (const wz of layout.windows) {
       for (const sgn of [-1, 1]) {
         glowParts.push(
-          new THREE.PlaneGeometry(1.62, 0.58)
+          new THREE.PlaneGeometry(WINDOW_W - 0.2, 0.82)
             .rotateY((sgn * Math.PI) / 2)
             .translate(sgn * (TRAIN.width / 2 + 0.035), 2.58, cz + wz)
+        );
+      }
+    }
+    for (const dz of layout.doors) {
+      for (const sgn of [-1, 1]) {
+        glowParts.push(
+          new THREE.PlaneGeometry(1.0, 0.95)
+            .rotateY((sgn * Math.PI) / 2)
+            .translate(sgn * (TRAIN.width / 2 + 0.036), 2.4, cz + dz)
         );
       }
     }
@@ -1834,19 +2197,17 @@ export function createTrainProxy({ color = '#0b5fae' } = {}) {
   glowParts.forEach((g) => g.dispose());
 
   // head / tail lamps at each end
-  const zf = TRAIN.carSpacing + TRAIN.shellLength / 2;
+  const zf = TRAIN.carSpacing + TRAIN.shellLength / 2 + 0.2;
   const lampPair = (z, material) => {
     const gs = [
-      new THREE.PlaneGeometry(0.55, 0.2).translate(-0.95, 1.95, z),
-      new THREE.PlaneGeometry(0.55, 0.2).translate(0.95, 1.95, z),
+      new THREE.PlaneGeometry(0.5, 0.18).translate(-0.84, 1.86, z),
+      new THREE.PlaneGeometry(0.5, 0.18).translate(0.84, 1.86, z),
     ];
     const mesh = new THREE.Mesh(mergeGeometries(gs), material);
     gs.forEach((g) => g.dispose());
     group.add(mesh);
     return mesh;
   };
-  // The model's +Z always points up-chainage, so when the service direction is
-  // negative the -Z end is the front. Swap which end carries the white lamp.
   const plusEnd = lampPair(zf + 0.08, headMat);
   const minusEnd = lampPair(-zf - 0.08, tailMat);
 
@@ -1862,8 +2223,8 @@ export function createTrainProxy({ color = '#0b5fae' } = {}) {
       toneMapped: false,
       side: THREE.DoubleSide,
     });
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), m);
-    mesh.position.set(0, 1.95, z);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 2.4), m);
+    mesh.position.set(0, 1.86, z);
     if (outward < 0) mesh.rotation.y = Math.PI;
     mesh.renderOrder = 5;
     group.add(mesh);
@@ -1886,10 +2247,8 @@ export function createTrainProxy({ color = '#0b5fae' } = {}) {
     const forward = direction >= 0;
     plusEnd.material = forward ? headMat : tailMat;
     minusEnd.material = forward ? tailMat : headMat;
-
     headMat.color.lerpColors(HEAD_DAY, HEAD_NIGHT, nightK);
     tailMat.color.lerpColors(TAIL_DAY, TAIL_NIGHT, nightK);
-
     const plusLeading = forward;
     plusLamp.mat.color.copy(plusLeading ? SPRITE_HEAD : SPRITE_TAIL);
     minusLamp.mat.color.copy(plusLeading ? SPRITE_TAIL : SPRITE_HEAD);

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://abhinav-prabhakar.github.io/ProjectMetro/sitemap.xml

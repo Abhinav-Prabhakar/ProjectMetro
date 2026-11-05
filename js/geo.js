@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MAP } from './config.js?v=20261105h';
+import { MAP } from './config.js?v=20261105k';
 
 const UP = new THREE.Vector3(0, 1, 0);
 

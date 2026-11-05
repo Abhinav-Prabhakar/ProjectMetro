@@ -82,6 +82,38 @@ Rebuild the network from a GTFS feed:
 node tools/build-network.mjs     # writes assets/data/network.json
 ```
 
+Regenerate every brand asset (favicons, PWA/maskable icons, shortcut icons,
+Apple splash screens, OG/Twitter cards, manifest screenshots):
+
+```bash
+python3 tools/make-icons.py      # writes assets/icons/
+```
+
+## Install it
+
+The tracker is a full PWA — open it in any modern browser and install it from
+the address bar, the browser menu, or the download icon in the header. On iOS,
+use **Share → Add to Home Screen**; the app shows that path automatically after
+the first few seconds. Installed, it runs standalone (no browser chrome), owns
+the display safe areas, and gets line-specific home-screen shortcuts for Red,
+Green and Blue.
+
+The manifest declares an absolute identity so the app can never collide with
+another installed PWA:
+
+```json
+{ "id": "/ProjectMetro/", "scope": "/ProjectMetro/",
+  "start_url": "/ProjectMetro/?source=pwa" }
+```
+
+**Offline:** `sw.js` precaches the app shell, fonts and the compiled network.
+Navigations, code and data are network-first, so an online load always gets the
+current build and timetable; when the connection drops, the last cached shell
+and timetable keep running, imagery pauses, and a status banner says so. A new
+deployment triggers a quiet "new build ready" toast rather than swapping code
+under a running session. Map tiles are deliberately not cached — they are
+cross-origin and change constantly.
+
 ## Controls
 
 | Input | Action |

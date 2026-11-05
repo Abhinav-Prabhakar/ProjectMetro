@@ -4,9 +4,117 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>Hyderabad Metro — Live 3D Network Tracker</title>
-<meta name="description" content="A real-time 3D tracker for the whole Hyderabad Metro network — Red, Green and Blue lines — running the official HMRL GTFS timetable over satellite imagery." />
+<meta name="description" content="A real-time 3D tracker for the whole Hyderabad Metro network — Red, Green and Blue lines — running the official HMRL GTFS timetable over live satellite imagery." />
+<meta name="author" content="Abhinav Prabhakar" />
+<meta name="keywords" content="Hyderabad Metro, HMRL, metro tracker, live timetable, 3D map, GTFS, Red Line, Green Line, Blue Line, Hyderabad" />
+<meta name="robots" content="index,follow,max-image-preview:large" />
+<meta name="referrer" content="strict-origin-when-cross-origin" />
+<meta name="color-scheme" content="dark" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="theme-color" id="themeColor" content="#0b1113" />
+<meta name="application-name" content="Metro Live" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Metro Live" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="msapplication-TileColor" content="#0b1113" />
+<meta name="msapplication-config" content="browserconfig.xml" />
+
+<link rel="canonical" href="https://abhinav-prabhakar.github.io/ProjectMetro/" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="favicon.ico" sizes="any" />
+<link rel="icon" type="image/svg+xml" href="assets/icons/favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32x32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="assets/icons/favicon-16x16.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png" />
+<link rel="mask-icon" href="assets/icons/safari-pinned-tab.svg" color="#0aa06a" />
+
+<!-- Social cards -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Metro Live" />
+<meta property="og:title" content="Hyderabad Metro — Live 3D Tracker" />
+<meta property="og:description" content="All three corridors, every set in service, driven by the official HMRL GTFS timetable over live satellite imagery." />
+<meta property="og:url" content="https://abhinav-prabhakar.github.io/ProjectMetro/" />
+<meta property="og:image" content="https://abhinav-prabhakar.github.io/ProjectMetro/assets/icons/og-image.jpg" />
+<meta property="og:image:type" content="image/jpeg" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A Blue Line train on the elevated Hyderabad Metro viaduct, with the caption Metro live." />
+<meta property="og:locale" content="en_IN" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Hyderabad Metro — Live 3D Tracker" />
+<meta name="twitter:description" content="All three corridors, every set in service, driven by the official HMRL GTFS timetable over live satellite imagery." />
+<meta name="twitter:image" content="https://abhinav-prabhakar.github.io/ProjectMetro/assets/icons/og-image.jpg" />
+<meta name="twitter:image:alt" content="A Blue Line train on the elevated Hyderabad Metro viaduct, with the caption Metro live." />
+
+<!-- Apple launch screens (portrait + landscape) -->
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-1320x2868.jpg" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-2868x1320.jpg" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-1206x2622.jpg" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-2622x1206.jpg" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-1290x2796.jpg" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-2796x1290.jpg" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-1179x2556.jpg" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-2556x1179.jpg" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-1284x2778.jpg" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-2778x1284.jpg" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-1170x2532.jpg" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-2532x1170.jpg" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-1242x2688.jpg" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-2688x1242.jpg" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-1125x2436.jpg" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-2436x1125.jpg" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-828x1792.jpg" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-1792x828.jpg" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-750x1334.jpg" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-1334x750.jpg" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-2048x2732.jpg" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-2732x2048.jpg" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-1668x2388.jpg" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-2388x1668.jpg" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-1640x2360.jpg" media="(device-width: 820px) and (device-height: 1180px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-2360x1640.jpg" media="(device-width: 820px) and (device-height: 1180px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-1620x2160.jpg" media="(device-width: 810px) and (device-height: 1080px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-2160x1620.jpg" media="(device-width: 810px) and (device-height: 1080px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-1536x2048.jpg" media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-2048x1536.jpg" media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-portrait-1488x2266.jpg" media="(device-width: 744px) and (device-height: 1133px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+<link rel="apple-touch-startup-image" href="assets/icons/splash/splash-landscape-2266x1488.jpg" media="(device-width: 744px) and (device-height: 1133px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+
+<!-- Performance: tiles and fonts are the critical path -->
+<link rel="preconnect" href="https://server.arcgisonline.com" crossorigin />
+<link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
+<link rel="dns-prefetch" href="https://server.arcgisonline.com" />
+<link rel="dns-prefetch" href="https://tiles.openfreemap.org" />
+<link rel="preload" href="assets/fonts/Inter-400.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="assets/fonts/JetBrainsMono-400.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="modulepreload" href="js/main.js?v=20261105k" />
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Hyderabad Metro — Live 3D Tracker",
+  "alternateName": "Metro Live",
+  "url": "https://abhinav-prabhakar.github.io/ProjectMetro/",
+  "description": "A real-time 3D tracker for the whole Hyderabad Metro network, driven by the official HMRL GTFS timetable.",
+  "applicationCategory": "TravelApplication",
+  "operatingSystem": "Any",
+  "browserRequirements": "Requires JavaScript and WebGL",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "INR" },
+  "author": {
+    "@type": "Person",
+    "name": "Abhinav Prabhakar",
+    "url": "https://github.com/Abhinav-Prabhakar"
+  },
+  "image": "https://abhinav-prabhakar.github.io/ProjectMetro/assets/icons/og-image.jpg",
+  "screenshot": "https://abhinav-prabhakar.github.io/ProjectMetro/assets/icons/screenshot-wide.jpg"
+}
+</script>
+
 <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-<link rel="stylesheet" href="css/style.css?v=20261105h" />
+<link rel="stylesheet" href="css/style.css?v=20261105k" />
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.js" } }
 </script>
@@ -21,6 +129,14 @@
 <script src="vendor/maplibre-gl.js"></script>
 </head>
 <body>
+
+<noscript>
+  <div class="noscript">
+    <img src="assets/icons/favicon.svg" alt="" width="44" height="44" />
+    <h1>JavaScript is required.</h1>
+    <p>The Hyderabad Metro tracker is a live WebGL scene. Enable JavaScript, then reload to watch the published timetable run.</p>
+  </div>
+</noscript>
 
 <div id="intro" class="intro">
   <div class="intro-inner">
@@ -76,6 +192,9 @@
         <div class="weather-temp">31°</div>
         <div class="weather-meta">HYDERABAD<br/><span>HAZE · SE 9 KM/H</span></div>
       </div>
+      <button class="icon-btn" id="installBtn" aria-label="Install Metro Live" title="Install app" hidden>
+        <svg viewBox="0 0 24 24"><path d="M12 3.5v9.6M8.4 9.9 12 13.5l3.6-3.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 15.4v3.1c0 .9.7 1.6 1.6 1.6h10.8c.9 0 1.6-.7 1.6-1.6v-3.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
       <button class="icon-btn mode" id="nightBtn" aria-label="Toggle night mode" aria-pressed="false" title="Day / night (N)">
         <svg class="ic-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4L17 7M7 17l-1.6 1.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         <svg class="ic-moon" viewBox="0 0 24 24"><path d="M20 14.6A8.2 8.2 0 0 1 9.4 4a8.5 8.5 0 1 0 10.6 10.6z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
@@ -199,6 +318,22 @@
 
   <div class="stats mono" id="stats"></div>
   <div class="train-count mono" id="trainCount"></div>
+
+  <div class="net-banner mono" id="netBanner" role="status" aria-live="polite" hidden><i></i>OFFLINE · TIMETABLE STILL RUNNING · IMAGERY PAUSED</div>
+  <button class="update-toast mono" id="updateToast" type="button" hidden>NEW BUILD READY · TAP TO RELOAD</button>
+</div>
+
+<div class="install-sheet glass" id="installSheet" role="dialog" aria-modal="true" aria-labelledby="installTitle" hidden>
+  <button class="notes-close" id="installClose" aria-label="Close">×</button>
+  <div class="card-kicker">INSTALL · METRO LIVE</div>
+  <h2 id="installTitle">Keep the network<br/>one tap away.</h2>
+  <p id="installLead">Run the tracker full-screen, straight from your home screen or dock. The app shell and the last timetable are cached, so it opens instantly and keeps running if the signal drops.</p>
+  <ol class="install-steps" id="installSteps">
+    <li data-platform="ios"><b>iPhone / iPad</b><span>Open in Safari, tap <em>Share</em>, then <em>Add to Home Screen</em>.</span></li>
+    <li data-platform="android"><b>Android</b><span>Open the browser menu, then <em>Install app</em> or <em>Add to Home screen</em>.</span></li>
+    <li data-platform="desktop"><b>Desktop</b><span>Use the install icon in the address bar, or <em>Menu → Install Metro Live</em>.</span></li>
+  </ol>
+  <div class="install-note mono">NO STORE · NO ACCOUNT · WORKS OFFLINE</div>
 </div>
 
 <div class="notes glass" id="notes">
@@ -215,10 +350,11 @@
     <div><dt>Power</dt><dd>25 kV AC OHE</dd></div>
     <div><dt>Max speed</dt><dd>80 km/h</dd></div>
     <div><dt>Accel / brake</dt><dd>0.95 / 1.05 m/s²</dd></div>
+    <div><dt>Install</dt><dd id="installState">Add to home screen</dd></div>
   </dl>
   <p class="notes-small">Timetable and station data © Hyderabad Metro Rail Ltd., July 2026 GTFS (Open Data Telangana). Satellite imagery © Esri, Maxar, Earthstar Geographics. 3D buildings © OpenFreeMap / OpenStreetMap contributors. An independent visual study, not an operational feed.</p>
 </div>
 
-<script type="module" src="js/main.js?v=20261105h"></script>
+<script type="module" src="js/main.js?v=20261105k"></script>
 </body>
 </html>

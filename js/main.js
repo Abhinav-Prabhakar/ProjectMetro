@@ -7,15 +7,15 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { MAP, TRAIN, SIM } from './config.js?v=20261105h';
-import { loadNetwork } from './network.js?v=20261105h';
-import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261105h';
-import { buildStations } from './station.js?v=20261105h';
-import { createTrain, createTrainProxy } from './train.js?v=20261105h';
-import { createWorld } from './world.js?v=20261105h';
-import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261105h';
-import { makeGlowRadial } from './materials.js?v=20261105h';
-import { mergeGeometries } from './geomutil.js?v=20261105h';
+import { MAP, TRAIN, SIM } from './config.js?v=20261105k';
+import { loadNetwork } from './network.js?v=20261105k';
+import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261105k';
+import { buildStations } from './station.js?v=20261105k';
+import { createTrain, createTrainProxy } from './train.js?v=20261105k';
+import { createWorld } from './world.js?v=20261105k';
+import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261105k';
+import { makeGlowRadial } from './materials.js?v=20261105k';
+import { mergeGeometries } from './geomutil.js?v=20261105k';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -61,6 +61,15 @@ const els = {
   tsSub: $('tsSub'),
   tsDot: $('tsDot'),
   nightBtn: $('nightBtn'),
+  installBtn: $('installBtn'),
+  installSheet: $('installSheet'),
+  installClose: $('installClose'),
+  installLead: $('installLead'),
+  installSteps: $('installSteps'),
+  installState: $('installState'),
+  netBanner: $('netBanner'),
+  updateToast: $('updateToast'),
+  themeColor: document.querySelector('meta[name="theme-color"]'),
   serviceLabel: $('serviceLabel'),
   trainCount: $('trainCount'),
   stats: $('stats'),
@@ -68,6 +77,8 @@ const els = {
 
 const clamp = THREE.MathUtils.clamp;
 const UP = new THREE.Vector3(0, 1, 0);
+const params = new URLSearchParams(location.search);
+const requestedLine = (params.get('line') || '').toUpperCase();
 
 const scratch = {
   pA: new THREE.Vector3(),
@@ -87,10 +98,10 @@ const scratch = {
 const state = {
   epoch: Date.now() / 1000,
   playing: true,
-  lineId: 'BLUE',
+  lineId: ['RED', 'GREEN', 'BLUE'].includes(requestedLine) ? requestedLine : 'BLUE',
   followId: null,
-  night: new URLSearchParams(location.search).get('night') === '1',
-  nightK: new URLSearchParams(location.search).get('night') === '1' ? 1 : 0,
+  night: params.get('night') === '1',
+  nightK: params.get('night') === '1' ? 1 : 0,
   doors: 0,
   vehicle: null,
   hasUserSelected: false,
@@ -284,7 +295,7 @@ function addInterchangeLinks(parent, lineRuntime) {
 async function boot() {
   try {
     document.documentElement.dataset.timeMode = state.night ? 'night' : 'day';
-    if (new URLSearchParams(location.search).has('stats')) document.body.classList.add('show-stats');
+    if (params.has('stats')) document.body.classList.add('show-stats');
     document.body.classList.add('no-buildings');
     setProgress(0.04, 'READING HMRL TIMETABLE');
     network = await loadNetwork((p) => setProgress(p, 'READING HMRL TIMETABLE'));
@@ -365,10 +376,12 @@ async function boot() {
     await world.ready;
     setProgress(0.97, 'ALIGNING TO THE CORRIDOR');
 
-    // default follow: the closest set on the blue line to the middle of the map
-    const midStation = network.byId.get('BLUE').stations[Math.floor(network.byId.get('BLUE').stations.length / 2)];
-    const focus = network.byId.get('BLUE').getPoint(midStation.s);
-    selectNearestTrain('BLUE', focus, true);
+    // default follow: the closest set on the requested line (Blue unless a
+    // shortcut or ?line= asked for another corridor)
+    const startLine = network.byId.get(state.lineId) || network.byId.get('BLUE');
+    const midStation = startLine.stations[Math.floor(startLine.stations.length / 2)];
+    const focus = startLine.getPoint(midStation.s);
+    selectNearestTrain(startLine.id, focus, true);
 
     applyNight({ immediate: true });
     placeAll();
@@ -922,11 +935,22 @@ function syncLineUI() {
 
 const NIGHT_TWEEN = 4.8;   // seconds for the full day ↔ night crossfade
 
+const CHROME_COLOR = { day: '#0b1113', night: '#04070d' };
+
+function applyChromeTheme() {
+  // The OS window chrome (Android status bar, desktop title bar) follows the
+  // scene rather than staying a fixed colour from the manifest.
+  if (els.themeColor) {
+    els.themeColor.setAttribute('content', state.night ? CHROME_COLOR.night : CHROME_COLOR.day);
+  }
+}
+
 function applyNight({ immediate = false } = {}) {
   const target = state.night ? 1 : 0;
   if (immediate) state.nightK = target;
   if (world) world.setTimeMode(state.night ? 'night' : 'day', { duration: immediate ? 0 : NIGHT_TWEEN * 1000 });
   if (immediate) applyNightFactor();
+  applyChromeTheme();
   if (els.nightBtn) {
     els.nightBtn.classList.toggle('active', state.night);
     els.nightBtn.setAttribute('aria-pressed', String(state.night));
@@ -1050,6 +1074,7 @@ function bindControls() {
     } else if (e.key === 'Escape') {
       toggleNotes(false);
       setPickerOpen(false);
+      closeInstallSheet();
     }
   });
 }
@@ -1195,8 +1220,151 @@ function frame(now) {
 }
 
 // ---------------------------------------------------------------------------
+// Install / PWA / connectivity
+//
+// The install affordance is deliberately quiet: one icon in the header when a
+// browser offers it, plus a manual path for iOS, which still has no
+// beforeinstallprompt event. Nothing blocks the tracker while it is open.
+// ---------------------------------------------------------------------------
+
+const PLATFORM = (() => {
+  const ua = navigator.userAgent || '';
+  const iOS =
+    /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (iOS) return 'ios';
+  if (/Android/i.test(ua)) return 'android';
+  return 'desktop';
+})();
+
+function isStandalone() {
+  return (
+    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+    navigator.standalone === true
+  );
+}
+
+let deferredInstall = null;
+
+function revealInstall() {
+  if (isStandalone()) {
+    document.body.classList.add('installed');
+    return;
+  }
+  if (els.installBtn) els.installBtn.hidden = false;
+}
+
+function openInstallSheet() {
+  if (!els.installSheet) return;
+  document.body.dataset.platform = PLATFORM;
+  els.installSheet.hidden = false;
+  requestAnimationFrame(() => els.installSheet.classList.add('open'));
+  els.installClose?.focus();
+}
+
+function closeInstallSheet() {
+  if (!els.installSheet || els.installSheet.hidden) return;
+  els.installSheet.classList.remove('open');
+  setTimeout(() => {
+    if (!els.installSheet.classList.contains('open')) els.installSheet.hidden = true;
+  }, 240);
+}
+
+function syncConnectivity() {
+  const offline = navigator.onLine === false;
+  if (els.netBanner) els.netBanner.hidden = !offline;
+  document.body.classList.toggle('offline', offline);
+}
+
+function setupInstall() {
+  document.body.dataset.platform = PLATFORM;
+  if (isStandalone()) {
+    document.body.classList.add('installed');
+    if (els.installState) els.installState.textContent = 'Installed';
+    return;
+  }
+  if (els.installState) els.installState.textContent = 'Add to home screen';
+
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    deferredInstall = event;
+    revealInstall();
+  });
+
+  window.addEventListener('appinstalled', () => {
+    deferredInstall = null;
+    document.body.classList.add('installed');
+    if (els.installBtn) els.installBtn.hidden = true;
+    if (els.installState) els.installState.textContent = 'Installed';
+    closeInstallSheet();
+  });
+
+  // iOS never fires beforeinstallprompt, but the Share-sheet path works.
+  if (PLATFORM === 'ios') setTimeout(revealInstall, 3200);
+
+  els.installBtn?.addEventListener('click', async () => {
+    if (deferredInstall) {
+      deferredInstall.prompt();
+      try {
+        await deferredInstall.userChoice;
+      } catch (err) {
+        /* the prompt can be dismissed by the browser */
+      }
+      deferredInstall = null;
+      return;
+    }
+    openInstallSheet();
+  });
+  els.installClose?.addEventListener('click', closeInstallSheet);
+  els.installSheet?.addEventListener('click', (event) => {
+    if (event.target === els.installSheet) closeInstallSheet();
+  });
+
+  window.addEventListener('online', syncConnectivity);
+  window.addEventListener('offline', syncConnectivity);
+  syncConnectivity();
+}
+
+function setupServiceWorker() {
+  if (!('serviceWorker' in navigator) || params.get('sw') === '0') return;
+  let hadController = !!navigator.serviceWorker.controller;
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) {
+      hadController = true; // first install, not an update
+      return;
+    }
+    if (els.updateToast) els.updateToast.hidden = false;
+  });
+
+  if (els.updateToast) {
+    els.updateToast.addEventListener('click', () => window.location.reload());
+  }
+
+  navigator.serviceWorker
+    .register('sw.js', { scope: './' })
+    .then((reg) => {
+      const check = () => reg.update().catch(() => {});
+      setInterval(check, 30 * 60 * 1000);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') check();
+      });
+    })
+    .catch(() => {
+      /* registration is an enhancement; the tracker runs without it */
+    });
+}
+
+function setupPwa() {
+  setupInstall();
+  setupServiceWorker();
+}
+
+// ---------------------------------------------------------------------------
 // go
 // ---------------------------------------------------------------------------
+
+setupPwa();
 
 boot().then(() => {
   if (ready) bindControls();

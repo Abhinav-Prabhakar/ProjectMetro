@@ -388,6 +388,115 @@ button { font: inherit; color: inherit; }
 }
 .notes-close:hover { color: #fff; }
 
+/* ---------- install sheet ---------- */
+.install-sheet {
+  position: absolute; z-index: 60;
+  left: 50%; top: 50%;
+  width: min(470px, calc(100vw - 32px));
+  padding: 26px 28px 22px;
+  border-radius: 4px;
+  transform: translate(-50%, -46%) scale(0.98);
+  opacity: 0; pointer-events: none;
+  transition: opacity 240ms ease, transform 240ms ease;
+}
+.install-sheet.open {
+  opacity: 1; pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+.install-sheet[hidden] { display: none; }
+/* Modals need to stay readable over bright satellite imagery; the glass blur
+   alone is not enough when a whole city block is behind the panel. */
+.notes,
+.install-sheet {
+  background: linear-gradient(160deg, rgba(10, 16, 19, 0.985), rgba(5, 9, 11, 0.975));
+  backdrop-filter: blur(26px) saturate(1.06);
+  -webkit-backdrop-filter: blur(26px) saturate(1.06);
+}
+/* Landscape phones and short windows: let the panel scroll instead of
+   pushing its close button off-screen. */
+.install-sheet {
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.install-sheet h2 {
+  font-size: 28px; font-weight: 300; letter-spacing: -0.035em;
+  line-height: 1.14; margin: 14px 0 12px;
+}
+.install-sheet p {
+  font-size: 12px; line-height: 1.7; color: rgba(232,240,241,0.6);
+  font-weight: 300; margin: 0 0 18px;
+}
+.install-steps { list-style: none; margin: 0 0 18px; padding: 0; border-top: 1px solid var(--line-soft); }
+.install-steps li {
+  display: grid; grid-template-columns: 104px 1fr; gap: 14px;
+  align-items: baseline;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line-soft);
+  opacity: 0.46;
+}
+.install-steps li b {
+  font-family: var(--mono); font-size: 7.5px; font-weight: 500;
+  letter-spacing: 0.14em; text-transform: uppercase; color: rgba(240,245,246,0.9);
+}
+.install-steps li span { font-size: 11.5px; line-height: 1.55; color: rgba(232,240,241,0.62); }
+.install-steps li em { font-style: normal; color: #eef3f4; }
+body[data-platform="ios"] .install-steps li[data-platform="ios"],
+body[data-platform="android"] .install-steps li[data-platform="android"],
+body[data-platform="desktop"] .install-steps li[data-platform="desktop"] {
+  opacity: 1;
+}
+.install-note {
+  font-size: 6.5px; letter-spacing: 0.2em; color: rgba(235,242,243,0.32);
+}
+body.installed #installBtn { display: none !important; }
+
+/* ---------- connectivity / update banners ---------- */
+.net-banner {
+  position: absolute; z-index: 55;
+  left: 50%; top: 84px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 14px;
+  border: 1px solid rgba(216, 165, 106, 0.36);
+  border-radius: 999px;
+  background: rgba(12, 10, 6, 0.88);
+  backdrop-filter: blur(16px);
+  font-size: 6.5px; letter-spacing: 0.18em;
+  color: rgba(240, 224, 200, 0.86);
+  white-space: nowrap;
+}
+.net-banner[hidden] { display: none; }
+.net-banner i {
+  width: 5px; height: 5px; border-radius: 50%; flex: none;
+  background: #d8a56a;
+  box-shadow: 0 0 9px 1px rgba(216, 165, 106, 0.7);
+}
+.update-toast {
+  position: absolute; z-index: 70;
+  left: 50%; bottom: 86px; transform: translateX(-50%);
+  padding: 10px 18px;
+  border: 1px solid rgba(88, 182, 255, 0.4);
+  border-radius: 999px;
+  background: rgba(7, 16, 22, 0.94);
+  color: #e8f4ff;
+  font-size: 6.5px; letter-spacing: 0.18em;
+  cursor: pointer;
+  box-shadow: 0 10px 34px rgba(0,0,0,0.5), 0 0 22px rgba(88,182,255,0.12);
+}
+.update-toast[hidden] { display: none; }
+.update-toast:hover { border-color: rgba(88, 182, 255, 0.7); }
+
+/* ---------- noscript ---------- */
+.noscript {
+  position: fixed; inset: 0; z-index: 999;
+  display: grid; align-content: center; justify-items: center;
+  gap: 8px; padding: 30px; text-align: center;
+  background: radial-gradient(120% 90% at 50% 0%, #0d171c, #070b0c 62%);
+}
+.noscript img { margin-bottom: 18px; }
+.noscript h1 { margin: 0; font-size: 28px; font-weight: 300; letter-spacing: -0.03em; }
+.noscript p { max-width: 420px; margin: 0; font-size: 12px; line-height: 1.7; color: rgba(232,240,241,0.6); }
+
 /* ---------- intro ---------- */
 .intro {
   position: fixed; inset: 0; z-index: 100;
@@ -679,4 +788,54 @@ html[data-line="BLUE"] .next-seq { border-left-color: rgba(88, 182, 255, 0.6); }
   .train-select-menu { width: 284px; }
   .train-count { display: none; }
   .stats { display: none !important; }
+  .net-banner { top: 72px; font-size: 6px; max-width: calc(100vw - 28px); overflow: hidden; text-overflow: ellipsis; }
+  .update-toast { bottom: 78px; white-space: nowrap; }
+  .install-sheet { padding: 22px 20px 18px; }
+  .install-sheet h2 { font-size: 24px; }
+  .install-steps li { grid-template-columns: 82px 1fr; gap: 10px; }
+}
+
+/* ---------- installed app / display cutouts ---------- */
+/* Standalone mode has no browser chrome, so the HUD owns the safe area. */
+@supports (padding: env(safe-area-inset-top)) {
+  .topbar {
+    padding-top: calc(26px + env(safe-area-inset-top));
+    padding-left: calc(30px + env(safe-area-inset-left));
+    padding-right: calc(30px + env(safe-area-inset-right));
+  }
+  .line-switch { left: calc(30px + env(safe-area-inset-left)); top: calc(104px + env(safe-area-inset-top)); }
+  .train-count { right: calc(30px + env(safe-area-inset-right)); top: calc(104px + env(safe-area-inset-top)); }
+  .journey { left: calc(30px + env(safe-area-inset-left)); bottom: calc(94px + env(safe-area-inset-bottom)); }
+  .telemetry { right: calc(30px + env(safe-area-inset-right)); bottom: calc(94px + env(safe-area-inset-bottom)); }
+  .dock { bottom: calc(22px + env(safe-area-inset-bottom)); }
+  .footer {
+    left: calc(30px + env(safe-area-inset-left));
+    right: calc(30px + env(safe-area-inset-right));
+    bottom: calc(7px + env(safe-area-inset-bottom));
+  }
+  .update-toast { bottom: calc(86px + env(safe-area-inset-bottom)); }
+  .net-banner { top: calc(84px + env(safe-area-inset-top)); }
+}
+@media (max-width: 860px) {
+  @supports (padding: env(safe-area-inset-top)) {
+    .topbar {
+      padding-top: calc(16px + env(safe-area-inset-top));
+      padding-left: calc(16px + env(safe-area-inset-left));
+      padding-right: calc(16px + env(safe-area-inset-right));
+    }
+    .line-switch { left: calc(14px + env(safe-area-inset-left)); top: calc(84px + env(safe-area-inset-top)); }
+    .journey {
+      left: calc(14px + env(safe-area-inset-left));
+      right: calc(14px + env(safe-area-inset-right));
+      bottom: calc(72px + env(safe-area-inset-bottom));
+    }
+    .dock { bottom: calc(14px + env(safe-area-inset-bottom)); }
+    .footer {
+      left: calc(14px + env(safe-area-inset-left));
+      right: calc(14px + env(safe-area-inset-right));
+      bottom: calc(6px + env(safe-area-inset-bottom));
+    }
+    .update-toast { bottom: calc(78px + env(safe-area-inset-bottom)); }
+    .net-banner { top: calc(72px + env(safe-area-inset-top)); }
+  }
 }

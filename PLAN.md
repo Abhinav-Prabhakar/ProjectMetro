@@ -11,6 +11,20 @@ the day↔night switch is a ~5 s crossfade across the light rig, sky, raster,
 street glow and train lamps, and camera/shadows are filtered and texel-snapped
 so the chase view no longer shimmers.
 
+**Polish pass:** the site now ships as a full PWA. One reproducible generator
+(`tools/make-icons.py`) draws the whole brand set — favicons, maskable PWA
+icons, per-line shortcut icons, 32 Apple launch images, OG/Twitter cards and
+manifest screenshots. The manifest uses an absolute app identity
+(`id`/`scope` = `/ProjectMetro/`, `start_url` = `/ProjectMetro/?source=pwa`) so
+it cannot collide with other installed PWAs. `sw.js` precaches the shell,
+fonts and compiled network, serves navigations/code/data network-first with an
+offline fallback to the cached shell, and never touches cross-origin map tiles.
+Also added: canonical/OG/Twitter metadata, JSON-LD, `robots.txt`, `sitemap.xml`,
+`browserconfig.xml`, a branded `404.html`, an `offline.html` fallback, an
+offline banner, a build-update toast, and a quiet install affordance that works
+on Chrome/Edge/Android, iOS (Share sheet) and browsers without
+`beforeinstallprompt`.
+
 Goal: a photo-real, real-time 3D tracker for the **whole Hyderabad Metro network**
 (Red / Green / Blue), driven by the official HMRL GTFS timetable, with a
 paint-quality day/night look and production-grade performance.
@@ -98,6 +112,8 @@ paint-quality day/night look and production-grade performance.
 - [x] H2 Intro/first-run, attribution (HMRL data), README.
 - [ ] H3 Screenshot QA at 1600×900, 1000×700, 430×932.
 - [x] H4 Commit per phase.
+- [x] H5 PWA shell: manifest with unique `id`, maskable icons, shortcuts, screenshots, install sheet, service worker + offline fallback.
+- [x] H6 Site polish: favicons, canonical/OG/Twitter/JSON-LD metadata, iOS splash screens, offline/update banners, SEO files, branded 404.
 
 ---
 

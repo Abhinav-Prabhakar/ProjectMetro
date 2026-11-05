@@ -1,0 +1,126 @@
+{
+  "id": "/ProjectMetro/",
+  "name": "Hyderabad Metro — Live 3D Tracker",
+  "short_name": "Metro Live",
+  "description": "A real-time 3D tracker for the whole Hyderabad Metro network — Red, Green and Blue lines — running the official HMRL GTFS timetable over live satellite imagery.",
+  "lang": "en-IN",
+  "dir": "ltr",
+  "start_url": "/ProjectMetro/?source=pwa",
+  "scope": "/ProjectMetro/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "any",
+  "background_color": "#070b0c",
+  "theme_color": "#0b1113",
+  "categories": ["travel", "navigation", "utilities", "education"],
+  "prefer_related_applications": false,
+  "handle_links": "preferred",
+  "launch_handler": { "client_mode": "focus-existing" },
+  "icons": [
+    {
+      "src": "assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/icon-256.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/icon-384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/icon-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "assets/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "assets/icons/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "assets/icons/screenshot-wide.jpg",
+      "sizes": "1280x720",
+      "type": "image/jpeg",
+      "form_factor": "wide",
+      "label": "Chase camera following a Blue Line set along the elevated viaduct"
+    },
+    {
+      "src": "assets/icons/screenshot-narrow.jpg",
+      "sizes": "720x1280",
+      "type": "image/jpeg",
+      "form_factor": "narrow",
+      "label": "Night mode with city lighting and lit train windows"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Red Line",
+      "short_name": "Red",
+      "description": "Follow a Red Line set between Miyapur and L. B. Nagar",
+      "url": "/ProjectMetro/?line=RED&source=shortcut",
+      "icons": [
+        {
+          "src": "assets/icons/shortcut-red-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Green Line",
+      "short_name": "Green",
+      "description": "Follow a Green Line set between JBS Parade Ground and MG Bus Station",
+      "url": "/ProjectMetro/?line=GREEN&source=shortcut",
+      "icons": [
+        {
+          "src": "assets/icons/shortcut-green-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Blue Line",
+      "short_name": "Blue",
+      "description": "Follow a Blue Line set between Nagole and Raidurg",
+      "url": "/ProjectMetro/?line=BLUE&source=shortcut",
+      "icons": [
+        {
+          "src": "assets/icons/shortcut-blue-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}

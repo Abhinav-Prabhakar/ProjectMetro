@@ -50,7 +50,7 @@ function concreteTexture(anisotropy = 8) {
 function trackbedTexture(anisotropy = 8) {
   const c = canvas2d(512, 512);
   const g = c.getContext('2d');
-  g.fillStyle = '#6f6b61';
+  g.fillStyle = '#6e7070';
   g.fillRect(0, 0, 512, 512);
   for (let i = 0; i < 9000; i++) {
     const v = 82 + Math.random() * 82;
@@ -180,6 +180,81 @@ function stationSignTexture(name, code) {
   return t;
 }
 
+function platformTexture(anisotropy = 8) {
+  const c = canvas2d(512, 512);
+  const g = c.getContext('2d');
+  g.fillStyle = '#5b6265';
+  g.fillRect(0, 0, 512, 512);
+  // polished granite tiles, 4 x 4 per texture
+  const n = 4;
+  const cell = 512 / n;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const v = 82 + Math.random() * 26;
+      g.fillStyle = `rgb(${v},${v + 4},${v + 6})`;
+      g.fillRect(i * cell + 2, j * cell + 2, cell - 4, cell - 4);
+      // speckle
+      for (let k = 0; k < 90; k++) {
+        const a = 0.02 + Math.random() * 0.08;
+        g.fillStyle = Math.random() > 0.4
+          ? `rgba(225,232,234,${a})`
+          : `rgba(22,27,29,${a})`;
+        g.fillRect(i * cell + Math.random() * cell, j * cell + Math.random() * cell, 1.6, 1.6);
+      }
+      // soft sheen band
+      const gr = g.createLinearGradient(i * cell, j * cell, i * cell + cell, j * cell + cell);
+      gr.addColorStop(0, 'rgba(255,255,255,0.05)');
+      gr.addColorStop(0.5, 'rgba(255,255,255,0)');
+      gr.addColorStop(1, 'rgba(0,0,0,0.04)');
+      g.fillStyle = gr;
+      g.fillRect(i * cell + 2, j * cell + 2, cell - 4, cell - 4);
+    }
+  }
+  // grout
+  g.strokeStyle = 'rgba(28,32,34,0.55)';
+  g.lineWidth = 3;
+  for (let i = 0; i <= n; i++) {
+    g.beginPath(); g.moveTo(i * cell, 0); g.lineTo(i * cell, 512); g.stroke();
+    g.beginPath(); g.moveTo(0, i * cell); g.lineTo(512, i * cell); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = anisotropy;
+  return t;
+}
+
+function stationRoofTexture(anisotropy = 8) {
+  const c = canvas2d(512, 512);
+  const g = c.getContext('2d');
+  g.fillStyle = '#e9edee';
+  g.fillRect(0, 0, 512, 512);
+  // long panels between purlins
+  for (let x = 0; x < 512; x += 64) {
+    g.fillStyle = 'rgba(120,132,136,0.22)';
+    g.fillRect(x, 0, 1.5, 512);
+    g.fillStyle = 'rgba(255,255,255,0.5)';
+    g.fillRect(x + 2, 0, 1, 512);
+  }
+  // transverse ribs
+  for (let y = 0; y < 512; y += 85) {
+    g.fillStyle = 'rgba(96,108,112,0.3)';
+    g.fillRect(0, y, 512, 2.4);
+    g.fillStyle = 'rgba(255,255,255,0.4)';
+    g.fillRect(0, y + 3, 512, 1.2);
+  }
+  // light grime
+  for (let i = 0; i < 900; i++) {
+    g.fillStyle = `rgba(90,102,104,${Math.random() * 0.05})`;
+    g.fillRect(Math.random() * 512, Math.random() * 512, 2 + Math.random() * 40, 1 + Math.random() * 3);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = anisotropy;
+  return t;
+}
+
 export function buildViaduct(route, { anisotropy = 8 } = {}) {
   const group = new THREE.Group();
   group.name = 'viaduct';
@@ -190,39 +265,40 @@ export function buildViaduct(route, { anisotropy = 8 } = {}) {
 
   const deckMat = new THREE.MeshStandardMaterial({
     map: concrete,
-    color: 0xf0ece2,
-    roughness: 0.85,
+    color: 0xdad7cd,
+    roughness: 0.88,
     metalness: 0.02,
     side: THREE.DoubleSide,
   });
   const parapetMat = new THREE.MeshStandardMaterial({
     map: concrete,
-    color: 0xf7f3e9,
-    roughness: 0.8,
+    color: 0xe7e3d9,
+    roughness: 0.82,
     metalness: 0.02,
     side: THREE.DoubleSide,
   });
-  const copingMat = new THREE.MeshStandardMaterial({ color: 0xfbf8ef, roughness: 0.7, side: THREE.DoubleSide });
+  const copingMat = new THREE.MeshStandardMaterial({ color: 0xe2ded4, roughness: 0.72, side: THREE.DoubleSide });
   const slabMat = new THREE.MeshStandardMaterial({
     map: asphalt,
-    color: 0xcfccc2,
-    roughness: 0.96,
+    color: 0x9fa1a0,
+    roughness: 0.97,
     metalness: 0.01,
   });
   const railMat = new THREE.MeshStandardMaterial({
-    color: 0xb9bcbb,
-    metalness: 0.92,
-    roughness: 0.25,
-    envMapIntensity: 1.4,
+    color: 0xc6cacb,
+    metalness: 0.94,
+    roughness: 0.22,
+    envMapIntensity: 1.5,
     side: THREE.DoubleSide,
+    flatShading: false,
   });
   const pierMat = new THREE.MeshStandardMaterial({
     map: concrete,
-    color: 0xdcd8ce,
-    roughness: 0.9,
+    color: 0xc7c3b8,
+    roughness: 0.92,
     metalness: 0.02,
   });
-  const steelMat = new THREE.MeshStandardMaterial({ color: 0x777e7c, roughness: 0.55, metalness: 0.6 });
+  const steelMat = new THREE.MeshStandardMaterial({ color: 0x5f6767, roughness: 0.58, metalness: 0.55 });
 
   const W = VIADUCT.deckWidth / 2;
   const top = VIADUCT.deckTop;
@@ -252,6 +328,30 @@ export function buildViaduct(route, { anisotropy = 8 } = {}) {
       slabMat
     );
     group.add(slab);
+  }
+
+  // raised walkway between the two running tracks
+  const walkway = new THREE.Mesh(
+    ribbonGeometry(route, -0.92, 0.92, top + 0.26, { step: 3, vScale: 0.25 }),
+    new THREE.MeshStandardMaterial({ map: concrete, color: 0xbfbcb2, roughness: 0.9 })
+  );
+  walkway.receiveShadow = true;
+  group.add(walkway);
+  for (const sgn of [-1, 1]) {
+    const kerb = new THREE.Mesh(
+      sweepGeometry(
+        route,
+        [
+          [sgn * 0.92, 0.02],
+          [sgn * 0.92, 0.27],
+          [sgn * 1.06, 0.27],
+          [sgn * 1.06, 0.02],
+        ],
+        { yBase: top, step: 3, vScale: 0.3 }
+      ),
+      new THREE.MeshStandardMaterial({ color: 0xa8a49a, roughness: 0.85, side: THREE.DoubleSide })
+    );
+    group.add(kerb);
   }
 
   // longitudinal cable troughs
@@ -310,6 +410,42 @@ export function buildViaduct(route, { anisotropy = 8 } = {}) {
       copingMat
     );
     group.add(cap);
+  }
+
+  // ---- parapet panel joints ----------------------------------------------
+  {
+    const spacing = 3.6;
+    const nSeg = Math.floor(route.length / spacing);
+    const jointGeo = new THREE.BoxGeometry(0.035, VIADUCT.parapetHeight - 0.06, 0.055);
+    const jointMat = new THREE.MeshStandardMaterial({
+      color: 0x9d9a90,
+      roughness: 0.95,
+      metalness: 0.0,
+    });
+    const joints = new THREE.InstancedMesh(jointGeo, jointMat, nSeg * 2);
+    const jm = new THREE.Matrix4();
+    const jq = new THREE.Quaternion();
+    const jv = new THREE.Vector3();
+    const jone = new THREE.Vector3(1, 1, 1);
+    let ji = 0;
+    for (let k = 1; k < nSeg; k++) {
+      const sPos = k * spacing;
+      const p = route.getPoint(sPos);
+      const t = route.getTangent(sPos);
+      const yaw = Math.atan2(t.x, t.z);
+      jq.setFromEuler(new THREE.Euler(0, yaw, 0));
+      for (const sgn of [-1, 1]) {
+        jv.set(
+          p.x + t.z * sgn * (W - 0.02),
+          top + (VIADUCT.parapetHeight - 0.06) / 2,
+          p.z - t.x * sgn * (W - 0.02)
+        );
+        jm.compose(jv, jq, jone);
+        joints.setMatrixAt(ji++, jm);
+      }
+    }
+    joints.count = ji;
+    group.add(joints);
   }
 
   // ---- rails --------------------------------------------------------------
@@ -448,7 +584,15 @@ export function buildViaduct(route, { anisotropy = 8 } = {}) {
     roughness: 0.22,
     metalness: 0.1,
   });
-  const platformMat = new THREE.MeshStandardMaterial({ color: 0x8f9294, roughness: 0.78 });
+  const soffitMat = new THREE.MeshStandardMaterial({ color: 0x6d7678, roughness: 0.82, metalness: 0.08 });
+  const platformMap = platformTexture(anisotropy);
+  platformMap.repeat.set(1.6, 46);
+  const platformMat = new THREE.MeshStandardMaterial({
+    map: platformMap,
+    color: 0xdfe4e4,
+    roughness: 0.4,
+    metalness: 0.08,
+  });
   const tactileMat = new THREE.MeshStandardMaterial({ color: 0xd9b53c, roughness: 0.8 });
 
   const colList = [];
@@ -462,64 +606,115 @@ export function buildViaduct(route, { anisotropy = 8 } = {}) {
     g.rotation.y = yaw;
 
     for (const sgn of [-1, 1]) {
-      const platform = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.92, 138), platformMat);
+      const platform = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.92, 112), platformMat);
       platform.position.set(sgn * 5.55, 0.46, 0);
       g.add(platform);
 
-      const tactile = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.03, 138), tactileMat);
+      const tactile = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.03, 112), tactileMat);
       tactile.position.set(sgn * 4.18, 0.935, 0);
       g.add(tactile);
+
+      // painted safety line at the platform edge
+      const edge = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.02, 112),
+        new THREE.MeshStandardMaterial({ color: 0xe4e0d4, roughness: 0.7 })
+      );
+      edge.position.set(sgn * 3.98, 0.925, 0);
+      g.add(edge);
     }
 
-    // Two separate platform canopies. The centre of the station stays open over
-    // the tracks so the set is visible from the chase camera.
+    // ---- platform canopies ------------------------------------------------
+    // Flat ribbed roofs over each platform, carried on a single row of columns
+    // down the platform centreline. The middle of the station stays open above
+    // the running lines so the set is always visible from the chase camera.
+    const CAN_W = 4.9;
+    const CAN_L = 92;
+    const CAN_Y = 5.35;
+    const roofMap = stationRoofTexture(anisotropy);
+    roofMap.repeat.set(1, 18);
+    const roofMat = new THREE.MeshStandardMaterial({
+      map: roofMap,
+      color: 0xf4f6f5,
+      roughness: 0.55,
+      metalness: 0.08,
+    });
     for (const sgn of [-1, 1]) {
-      const cx = sgn * 6.0;
+      const cx = sgn * 5.95;
 
-      // shallow gable, ridge over the platform centreline
-      for (const p of [-1, 1]) {
-        const panel = new THREE.Mesh(new THREE.BoxGeometry(1.86, 0.14, 102), roofMat);
-        panel.position.set(cx + p * 0.93, 5.72, 0);
-        panel.rotation.z = -p * 0.09;
-        panel.castShadow = true;
-        g.add(panel);
-      }
+      // roof slab, slightly cambered by the texture
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(CAN_W, 0.16, CAN_L), roofMat);
+      roof.position.set(cx, CAN_Y, 0);
+      roof.castShadow = true;
+      roof.receiveShadow = true;
+      g.add(roof);
 
-      for (let zz = -48; zz <= 48; zz += 6) {
-        const rib = new THREE.Mesh(new THREE.BoxGeometry(3.78, 0.07, 0.1), ribMat);
-        rib.position.set(cx, 5.83, zz);
-        g.add(rib);
-      }
+      // dark soffit
+      const soffit = new THREE.Mesh(
+        new THREE.BoxGeometry(CAN_W - 0.12, 0.05, CAN_L - 0.1),
+        soffitMat
+      );
+      soffit.position.set(cx, CAN_Y - 0.11, 0);
+      g.add(soffit);
 
-      // skylight strip along the ridge
-      const skylight = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.03, 99), skyMat);
-      skylight.position.set(cx, 5.85, 0);
-      g.add(skylight);
-      const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 102), ribMat);
-      ridge.position.set(cx, 5.88, 0);
-      g.add(ridge);
-
-      // blue fascia along both edges of the canopy
+      // blue fascia along both long edges and both ends
       for (const e of [-1, 1]) {
-        const fascia = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.5, 102), roofTrimMat);
-        fascia.position.set(cx + e * 1.84, 5.52, 0);
+        const fascia = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.52, CAN_L), roofTrimMat);
+        fascia.position.set(cx + e * (CAN_W / 2 - 0.08), CAN_Y - 0.22, 0);
         g.add(fascia);
+
+        // slim gutter above the fascia
+        const gutter = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.07, CAN_L), ribMat);
+        gutter.position.set(cx + e * (CAN_W / 2 - 0.02), CAN_Y + 0.1, 0);
+        g.add(gutter);
+      }
+      for (const zEnd of [-CAN_L / 2, CAN_L / 2]) {
+        const endFascia = new THREE.Mesh(new THREE.BoxGeometry(CAN_W, 0.52, 0.16), roofTrimMat);
+        endFascia.position.set(cx, CAN_Y - 0.22, zEnd);
+        g.add(endFascia);
       }
 
-      // name board on the outer fascia
+      // name board on the outer fascia, facing away from the track
       const tex = stationSignTexture(st.name, '03');
       const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
-      const board = new THREE.Mesh(new THREE.PlaneGeometry(6.6, 1.65), mat);
-      board.position.set(sgn * 7.95, 5.45, 0);
+      const board = new THREE.Mesh(new THREE.PlaneGeometry(6.2, 1.5), mat);
+      board.position.set(sgn * (5.95 + CAN_W / 2 + 0.02), CAN_Y + 0.72, 0);
       board.rotation.y = sgn > 0 ? Math.PI / 2 : -Math.PI / 2;
       g.add(board);
+
+      // hanging name boards under the canopy, readable on approach
+      for (const zz of [-34, 34]) {
+        const hangTex = stationSignTexture(st.name, '03');
+        const hangMat = new THREE.MeshBasicMaterial({ map: hangTex, side: THREE.DoubleSide });
+        const hang = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 0.72), hangMat);
+        hang.position.set(cx, CAN_Y - 0.62, zz);
+        hang.rotation.y = zz > 0 ? Math.PI : 0;
+        g.add(hang);
+        for (const hx of [-1.1, 1.1]) {
+          const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.34, 6), ribMat);
+          rod.position.set(cx + hx, CAN_Y - 0.28, zz);
+          g.add(rod);
+        }
+      }
+
+      // strip light under the canopy
+      const strip = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, 0.04, CAN_L - 6),
+        new THREE.MeshStandardMaterial({
+          color: 0xe4ecea,
+          emissive: 0xfff6e2,
+          emissiveIntensity: 0.8,
+          roughness: 0.4,
+        })
+      );
+      strip.position.set(cx, CAN_Y - 0.16, 0);
+      g.add(strip);
     }
 
     for (let zz = -52; zz <= 52; zz += 13) {
       for (const sgn of [-1, 1]) {
         colList.push({
-          x: p.x + Math.cos(yaw) * sgn * 7.0 + Math.sin(yaw) * zz,
-          z: p.z - Math.sin(yaw) * sgn * 7.0 + Math.cos(yaw) * zz,
+          x: p.x + Math.cos(yaw) * sgn * 5.95 + Math.sin(yaw) * zz,
+          z: p.z - Math.sin(yaw) * sgn * 5.95 + Math.cos(yaw) * zz,
           yaw,
         });
       }
@@ -529,8 +724,8 @@ export function buildViaduct(route, { anisotropy = 8 } = {}) {
     for (let zz = -52; zz <= 52; zz += 26) {
       for (const sgn of [-1, 1]) {
         legList.push({
-          x: p.x + Math.cos(yaw) * sgn * 6.15 + Math.sin(yaw) * zz,
-          z: p.z - Math.sin(yaw) * sgn * 6.15 + Math.cos(yaw) * zz,
+          x: p.x + Math.cos(yaw) * sgn * 7.35 + Math.sin(yaw) * zz,
+          z: p.z - Math.sin(yaw) * sgn * 7.35 + Math.cos(yaw) * zz,
           yaw,
         });
       }
@@ -552,8 +747,9 @@ export function buildViaduct(route, { anisotropy = 8 } = {}) {
   });
   group.add(stationCols);
 
-  const stationLegGeo = new THREE.CylinderGeometry(0.62, 0.78, top, 10);
-  stationLegGeo.translate(0, top / 2, 0);
+  const legH = top + 1.0;
+  const stationLegGeo = new THREE.CylinderGeometry(0.52, 0.7, legH, 12);
+  stationLegGeo.translate(0, legH / 2, 0);
   const stationLegs = new THREE.InstancedMesh(stationLegGeo, pierMat, legList.length);
   legList.forEach((c, i) => {
     m4.compose(

@@ -29,10 +29,10 @@ function makeBrushedSteel() {
   const c = canvas2d(1024, 512);
   const g = c.getContext('2d');
   const grad = g.createLinearGradient(0, 0, 0, 512);
-  grad.addColorStop(0, '#d9dcdd');
-  grad.addColorStop(0.35, '#cbd0d1');
-  grad.addColorStop(0.7, '#c0c5c6');
-  grad.addColorStop(1, '#aab0b1');
+  grad.addColorStop(0, '#eef1f2');
+  grad.addColorStop(0.35, '#e0e4e5');
+  grad.addColorStop(0.7, '#d3d8d9');
+  grad.addColorStop(1, '#bdc3c4');
   g.fillStyle = grad;
   g.fillRect(0, 0, 1024, 512);
 
@@ -898,10 +898,10 @@ function buildCar(materials, textures, texturesData, { index, cabPlus, cabMinus 
       car.add(leafGroup);
 
       const leaf = new THREE.Mesh(
-        new RoundedBoxGeometry(0.615, 1.9, 0.045, 2, 0.03),
+        new RoundedBoxGeometry(0.05, 1.9, 0.615, 2, 0.024),
         materials.doorSteel
       );
-      leaf.position.set(side * 0.012, 0, 0);
+      leaf.position.set(side * 0.014, 0, 0);
       leaf.castShadow = true;
       leafGroup.add(leaf);
 
@@ -918,12 +918,12 @@ function buildCar(materials, textures, texturesData, { index, cabPlus, cabMinus 
         new THREE.BoxGeometry(0.012, 0.24, 0.018),
         materials.rubber
       );
-      handle.position.set(side * 0.03, -0.18, -leafSide * 0.252);
+      handle.position.set(side * 0.036, -0.18, -leafSide * 0.252);
       leafGroup.add(handle);
 
       // centre seam
       const seam = new THREE.Mesh(new THREE.BoxGeometry(0.01, 1.88, 0.014), materials.gasket);
-      seam.position.set(side * 0.045, 0, -leafSide * 0.307);
+      seam.position.set(side * 0.042, 0, -leafSide * 0.307);
       leafGroup.add(seam);
 
       car.userData.doors.push({
@@ -1165,13 +1165,13 @@ function makeMaterials(anisotropy) {
 
   const steel = new THREE.MeshPhysicalMaterial({
     map: steelMap,
-    color: 0xd8dcdd,
-    metalness: 0.82,
-    roughness: 0.34,
+    color: 0xf6f9fa,
+    metalness: 0.58,
+    roughness: 0.33,
     roughnessMap: roughMap,
-    clearcoat: 0.18,
-    clearcoatRoughness: 0.34,
-    envMapIntensity: 1.05,
+    clearcoat: 0.24,
+    clearcoatRoughness: 0.3,
+    envMapIntensity: 1.25,
   });
 
   const doorSteel = new THREE.MeshPhysicalMaterial({
@@ -1194,13 +1194,13 @@ function makeMaterials(anisotropy) {
   });
 
   const glass = new THREE.MeshPhysicalMaterial({
-    color: 0x081416,
-    metalness: 0.35,
-    roughness: 0.045,
-    clearcoat: 1,
-    clearcoatRoughness: 0.03,
-    envMapIntensity: 2.4,
-    emissive: 0x02090a,
+    color: 0x040d11,
+    metalness: 0.0,
+    roughness: 0.28,
+    clearcoat: 0.35,
+    clearcoatRoughness: 0.18,
+    envMapIntensity: 0.3,
+    emissive: 0x05141a,
     emissiveIntensity: 1,
   });
 

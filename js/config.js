@@ -16,18 +16,18 @@ export const LINE = {
 export const MAP = {
   // Local projection origin (roughly the middle of the Blue Line).
   origin: { lng: 78.47, lat: 17.42 },
-  initialZoom: 19.0,
+  initialZoom: 20.15,
   minZoom: 13,
-  maxZoom: 19.6,
-  pitch: 55,
+  maxZoom: 21.5,
+  pitch: 50,
   maxPitch: 76,
   // Chase camera looks this far up the line from the train, offset to the side
   // so the set is seen in three-quarter view rather than dead astern.
-  lookAhead: 26,
-  cameraOffset: 4.0,
+  lookAhead: 16,
+  cameraOffset: 3.5,
   // The chase view is swung a little off the track heading so the flank of the
   // train is visible; dragging adds to this base angle.
-  chaseBearing: -18,
+  chaseBearing: -20,
 };
 
 export const VIADUCT = {

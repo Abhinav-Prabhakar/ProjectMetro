@@ -152,13 +152,17 @@ async function boot() {
 
     const params = new URLSearchParams(window.location.search);
     if (params.has('zoom')) {
-      cam.zoom = cam.zoomTarget = clamp(parseFloat(params.get('zoom')) || MAP.initialZoom, 16.6, 19.55);
+      cam.zoom = cam.zoomTarget = clamp(parseFloat(params.get('zoom')) || MAP.initialZoom, 16.8, 21.3);
     }
     if (params.has('pitch')) {
       cam.pitch = cam.pitchTarget = clamp(parseFloat(params.get('pitch')) || MAP.pitch, 24, MAP.maxPitch);
     }
     if (params.has('look')) {
       cam.lookAhead = clamp(parseFloat(params.get('look')) || MAP.lookAhead, 8, 90);
+    }
+    if (params.has('face')) {
+      // debug: look at the leading cab from ahead
+      MAP.chaseBearing += 180;
     }
 
     placeCars(0);
@@ -621,7 +625,7 @@ function bindPointer() {
   let drag = null;
   let pinch = 0;
 
-  const zoomClamp = (z) => clamp(z, 16.6, 19.55);
+  const zoomClamp = (z) => clamp(z, 16.8, 21.3);
 
   canvas.addEventListener('pointerdown', (e) => {
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });

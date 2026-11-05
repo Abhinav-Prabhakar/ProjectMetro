@@ -56,13 +56,22 @@ const STYLE = {
       type: 'fill-extrusion',
       source: 'omt',
       'source-layer': 'building',
-      minzoom: 13.2,
-      filter: ['==', ['geometry-type'], 'Polygon'],
+      minzoom: 14.2,
+      filter: [
+        'all',
+        ['==', ['geometry-type'], 'Polygon'],
+        ['>=', ['coalesce', ['get', 'render_height'], 0], 14],
+      ],
       paint: {
-        'fill-extrusion-color': '#4a5150',
-        'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 7],
+        'fill-extrusion-color': [
+          'interpolate', ['linear'], ['coalesce', ['get', 'render_height'], 14],
+          14, '#8d887e',
+          40, '#a29c90',
+          90, '#bcb5a7',
+        ],
+        'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 14],
         'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
-        'fill-extrusion-opacity': 0.4,
+        'fill-extrusion-opacity': 0.86,
         'fill-extrusion-vertical-gradient': true,
       },
     },
@@ -322,17 +331,19 @@ export function createWorld({ route, viaduct, train, onProgress = () => {} }) {
   };
 
   const ready = new Promise((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    // Never let a slow tile/style server trap the intro screen.
+    setTimeout(done, 14000);
     map.on('load', () => {
       onProgress(0.72);
       addMapLayers(map, route);
       map.addLayer(customLayer);
       // One tile sweep before we call it ready, with a hard timeout.
-      let settled = false;
-      const done = () => {
-        if (settled) return;
-        settled = true;
-        resolve();
-      };
       map.once('idle', done);
       setTimeout(done, 4200);
     });
@@ -353,14 +364,19 @@ export function createWorld({ route, viaduct, train, onProgress = () => {} }) {
   }
 
   if (typeof ResizeObserver !== 'undefined') {
-    const canvas = map.getCanvas();
+    const container = map.getContainer();
     const ro = new ResizeObserver(() => {
-      if (!renderer) return;
       lastW = 0;
       lastH = 0;
+      map.resize();
     });
-    ro.observe(canvas.parentElement || canvas);
+    ro.observe(container);
   }
+  window.addEventListener('resize', () => {
+    lastW = 0;
+    lastH = 0;
+    map.resize();
+  });
 
   return {
     map,

@@ -405,33 +405,44 @@ export function createWorld({ network, sceneObjects, onProgress = () => {} }) {
     shadowCatcher.position.set(target.x, 0.05, target.z);
   }
 
+  // setSky needs a fully parsed style; on a cold load (or a slow Pages
+  // request) the sky spec is not there yet. Retry briefly instead of throwing
+  // out of the boot sequence.
+  let skyTries = 0;
+  function applySky(night) {
+    const spec = night
+      ? {
+          'sky-color': '#04070d',
+          'horizon-color': '#17243a',
+          'fog-color': '#091120',
+          'fog-ground-blend': 0.85,
+          'horizon-fog-blend': 0.75,
+          'sky-horizon-blend': 0.85,
+          'atmosphere-blend': 0.9,
+        }
+      : {
+          'sky-color': '#7fb0d8',
+          'horizon-color': '#dbe3da',
+          'fog-color': '#dbe3da',
+          'fog-ground-blend': 0.9,
+          'horizon-fog-blend': 0.7,
+          'sky-horizon-blend': 0.8,
+          'atmosphere-blend': 0.85,
+        };
+    if (!map.setSky) return;
+    try {
+      map.setSky(spec);
+      skyTries = 0;
+    } catch (err) {
+      if (skyTries++ < 12) setTimeout(() => applySky(night), 350);
+    }
+  }
+
   function setTimeMode(mode) {
     const night = mode === 'night';
     document.documentElement.dataset.timeMode = night ? 'night' : 'day';
     if (lighting) lighting.setMode(night ? 'night' : 'day');
-    if (map.setSky) {
-      map.setSky(
-        night
-          ? {
-              'sky-color': '#04070d',
-              'horizon-color': '#17243a',
-              'fog-color': '#091120',
-              'fog-ground-blend': 0.85,
-              'horizon-fog-blend': 0.75,
-              'sky-horizon-blend': 0.85,
-              'atmosphere-blend': 0.9,
-            }
-          : {
-              'sky-color': '#7fb0d8',
-              'horizon-color': '#dbe3da',
-              'fog-color': '#dbe3da',
-              'fog-ground-blend': 0.9,
-              'horizon-fog-blend': 0.7,
-              'sky-horizon-blend': 0.8,
-              'atmosphere-blend': 0.85,
-            }
-      );
-    }
+    applySky(night);
     if (map.getLayer('satellite')) {
       map.setPaintProperty('satellite', 'raster-brightness-max', night ? 0.36 : 0.97);
       map.setPaintProperty('satellite', 'raster-brightness-min', night ? 0.0 : 0.01);

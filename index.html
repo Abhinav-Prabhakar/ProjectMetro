@@ -6,7 +6,7 @@
 <title>Hyderabad Metro — Live 3D Network Tracker</title>
 <meta name="description" content="A real-time 3D tracker for the whole Hyderabad Metro network — Red, Green and Blue lines — running the official HMRL GTFS timetable over satellite imagery." />
 <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-<link rel="stylesheet" href="css/style.css" />
+<link rel="stylesheet" href="css/style.css?v=20261105h" />
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.js" } }
 </script>
@@ -44,7 +44,9 @@
 <div id="stage" class="stage">
   <div id="map" class="map"></div>
   <div class="grade"></div>
+  <div class="grade grade-night"></div>
   <div class="vignette"></div>
+  <div class="vignette vignette-night"></div>
   <div class="grain"></div>
 
   <header class="topbar">
@@ -165,17 +167,24 @@
   <div class="hint" id="hint">DRAG&nbsp; ORBIT &nbsp;·&nbsp; SCROLL&nbsp; ZOOM &nbsp;·&nbsp; N&nbsp; NIGHT &nbsp;·&nbsp; L&nbsp; LINE &nbsp;·&nbsp; SPACE&nbsp; PAUSE &nbsp;·&nbsp; H&nbsp; HIDE UI</div>
 
   <nav class="dock glass">
-    <select id="trainPicker" class="train-picker" aria-label="Choose a train"></select>
+    <div class="train-select" id="trainSelect">
+      <button class="train-select-btn" id="trainSelectBtn" aria-haspopup="listbox" aria-expanded="false" aria-controls="trainSelectMenu">
+        <span class="ts-dot" id="tsDot" aria-hidden="true"></span>
+        <span class="ts-label">
+          <span class="ts-id" id="tsId">SELECT SET</span>
+          <span class="ts-sub" id="tsSub">NEAREST</span>
+        </span>
+        <svg class="ts-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="train-select-menu" id="trainSelectMenu" role="listbox" aria-label="Choose a train" hidden>
+        <ul id="trainSelectList"></ul>
+      </div>
+    </div>
     <div class="dock-div"></div>
     <button class="dock-btn primary" id="playBtn" aria-label="Pause">
       <svg class="ic-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>
       <svg class="ic-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>
     </button>
-    <div class="dock-group">
-      <button class="dock-btn rate" data-rate="0.5">.5</button>
-      <button class="dock-btn rate active" data-rate="1">1</button>
-      <button class="dock-btn rate" data-rate="4">4</button>
-    </div>
     <div class="dock-div"></div>
     <button class="dock-btn" id="resetCam" aria-label="Recenter camera" title="Recenter camera (R)">
       <svg viewBox="0 0 24 24"><path d="M12 3.5l2.2 4.5 4.9.7-3.5 3.4.8 4.9-4.4-2.3-4.4 2.3.8-4.9L4.9 8.7l4.9-.7z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
@@ -210,6 +219,6 @@
   <p class="notes-small">Timetable and station data © Hyderabad Metro Rail Ltd., July 2026 GTFS (Open Data Telangana). Satellite imagery © Esri, Maxar, Earthstar Geographics. 3D buildings © OpenFreeMap / OpenStreetMap contributors. An independent visual study, not an operational feed.</p>
 </div>
 
-<script type="module" src="js/main.js?v=20261105c"></script>
+<script type="module" src="js/main.js?v=20261105h"></script>
 </body>
 </html>

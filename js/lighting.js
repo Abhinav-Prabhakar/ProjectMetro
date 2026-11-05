@@ -179,22 +179,94 @@ export function createLighting({ scene, renderer, preset = 'day' }) {
   let envTarget = null;
   const temp = new THREE.Vector3();
 
-  function apply(mode, { rebuildEnv = true } = {}) {
-    const p = PRESETS[mode] || PRESETS.day;
-    state.mode = mode;
-    state.preset = p;
+  // -------------------------------------------------------------------------
+  // Crossfade state
+  //
+  // Lighting values live in `current`; a mode change snapshots the current
+  // values and eases them toward the target preset. Sky colours come along for
+  // the ride, so the map's sky gradient and the 3D rig agree at every frame.
+  // -------------------------------------------------------------------------
+  const makeValues = (p) => ({
+    sunAzimuth: p.sunAzimuth,
+    sunElevation: p.sunElevation,
+    sunColor: new THREE.Color(p.sunColor),
+    sunIntensity: p.sunIntensity,
+    hemiSky: new THREE.Color(p.hemiSky),
+    hemiGround: new THREE.Color(p.hemiGround),
+    hemiIntensity: p.hemiIntensity,
+    ambient: new THREE.Color(p.ambient),
+    ambientIntensity: p.ambientIntensity,
+    envIntensity: p.envIntensity,
+    exposure: p.exposure,
+    shadowIntensity: p.shadowIntensity,
+    skyTop: new THREE.Color(p.skyTop),
+    skyMid: new THREE.Color(p.skyMid),
+    skyHorizon: new THREE.Color(p.skyHorizon),
+    ground: new THREE.Color(p.ground),
+    sunDisc: p.sunDisc,
+  });
 
-    sun.color.setHex(p.sunColor);
-    sun.intensity = p.sunIntensity;
-    sun.shadow.intensity = p.shadowIntensity;
-    sun.userData.dir = sunVector(p);
+  const copyValues = (dst, src) => {
+    dst.sunAzimuth = src.sunAzimuth;
+    dst.sunElevation = src.sunElevation;
+    dst.sunColor.copy(src.sunColor);
+    dst.sunIntensity = src.sunIntensity;
+    dst.hemiSky.copy(src.hemiSky);
+    dst.hemiGround.copy(src.hemiGround);
+    dst.hemiIntensity = src.hemiIntensity;
+    dst.ambient.copy(src.ambient);
+    dst.ambientIntensity = src.ambientIntensity;
+    dst.envIntensity = src.envIntensity;
+    dst.exposure = src.exposure;
+    dst.shadowIntensity = src.shadowIntensity;
+    dst.skyTop.copy(src.skyTop);
+    dst.skyMid.copy(src.skyMid);
+    dst.skyHorizon.copy(src.skyHorizon);
+    dst.ground.copy(src.ground);
+    dst.sunDisc = src.sunDisc;
+    return dst;
+  };
 
-    hemi.color.setHex(p.hemiSky);
-    hemi.groundColor.setHex(p.hemiGround);
-    hemi.intensity = p.hemiIntensity;
+  const lerpValues = (dst, a, b, t) => {
+    dst.sunAzimuth = THREE.MathUtils.lerp(a.sunAzimuth, b.sunAzimuth, t);
+    dst.sunElevation = THREE.MathUtils.lerp(a.sunElevation, b.sunElevation, t);
+    dst.sunColor.lerpColors(a.sunColor, b.sunColor, t);
+    dst.sunIntensity = THREE.MathUtils.lerp(a.sunIntensity, b.sunIntensity, t);
+    dst.hemiSky.lerpColors(a.hemiSky, b.hemiSky, t);
+    dst.hemiGround.lerpColors(a.hemiGround, b.hemiGround, t);
+    dst.hemiIntensity = THREE.MathUtils.lerp(a.hemiIntensity, b.hemiIntensity, t);
+    dst.ambient.lerpColors(a.ambient, b.ambient, t);
+    dst.ambientIntensity = THREE.MathUtils.lerp(a.ambientIntensity, b.ambientIntensity, t);
+    dst.envIntensity = THREE.MathUtils.lerp(a.envIntensity, b.envIntensity, t);
+    dst.exposure = THREE.MathUtils.lerp(a.exposure, b.exposure, t);
+    dst.shadowIntensity = THREE.MathUtils.lerp(a.shadowIntensity, b.shadowIntensity, t);
+    dst.skyTop.lerpColors(a.skyTop, b.skyTop, t);
+    dst.skyMid.lerpColors(a.skyMid, b.skyMid, t);
+    dst.skyHorizon.lerpColors(a.skyHorizon, b.skyHorizon, t);
+    dst.ground.lerpColors(a.ground, b.ground, t);
+    dst.sunDisc = THREE.MathUtils.lerp(a.sunDisc, b.sunDisc, t);
+    return dst;
+  };
 
-    ambient.color.setHex(p.ambient);
-    ambient.intensity = p.ambientIntensity;
+  const current = makeValues(PRESETS[preset] || PRESETS.day);
+  const fromValues = makeValues(PRESETS[preset] || PRESETS.day);
+  const toValues = makeValues(PRESETS[preset] || PRESETS.day);
+  let fade = null; // { elapsed, duration }
+
+  const hex = (color) => `#${color.getHexString()}`;
+
+  function applyCurrent(rebuildEnv) {
+    sun.color.copy(current.sunColor);
+    sun.intensity = current.sunIntensity;
+    sun.shadow.intensity = current.shadowIntensity;
+    sun.userData.dir = sunVector(current);
+
+    hemi.color.copy(current.hemiSky);
+    hemi.groundColor.copy(current.hemiGround);
+    hemi.intensity = current.hemiIntensity;
+
+    ambient.color.copy(current.ambient);
+    ambient.intensity = current.ambientIntensity;
 
     // NOTE: scene fog is deliberately not used. The custom layer folds the
     // model matrix into the projection matrix, so fragment view-space distance
@@ -205,20 +277,73 @@ export function createLighting({ scene, renderer, preset = 'day' }) {
 
     if (rebuildEnv) {
       if (envTarget) envTarget.dispose();
-      envTarget = buildEnvironment(renderer, p);
+      envTarget = buildEnvironment(renderer, {
+        ...PRESETS[state.mode] || PRESETS.day,
+        skyTop: hex(current.skyTop),
+        skyMid: hex(current.skyMid),
+        skyHorizon: hex(current.skyHorizon),
+        ground: hex(current.ground),
+        sunAzimuth: current.sunAzimuth,
+        sunElevation: current.sunElevation,
+        sunDisc: current.sunDisc,
+      });
       scene.environment = envTarget;
     }
-    scene.environmentIntensity = p.envIntensity;
-    renderer.toneMappingExposure = p.exposure;
+    scene.environmentIntensity = current.envIntensity;
+    renderer.toneMappingExposure = current.exposure;
 
-    scene.userData.preset = p;
+    state.preset = current;
+  }
+
+  function setMode(mode, { duration = 0 } = {}) {
+    const target = PRESETS[mode] || PRESETS.day;
+    state.mode = mode;
     document.documentElement.dataset.timeMode = mode;
+
+    if (duration <= 0) {
+      copyValues(current, makeValues(target));
+      fade = null;
+      applyCurrent(true);
+      return;
+    }
+    if (state.fadeTo === mode) return;
+    state.fadeTo = mode;
+    copyValues(fromValues, current);
+    copyValues(toValues, makeValues(target));
+    fade = { elapsed: 0, duration };
+  }
+
+  function update(dt) {
+    if (!fade) return 1;
+    fade.elapsed += dt;
+    const raw = Math.min(1, fade.elapsed / fade.duration);
+    const t = raw * raw * (3 - 2 * raw);
+    lerpValues(current, fromValues, toValues, t);
+    applyCurrent(false);
+    if (raw >= 1) {
+      fade = null;
+      state.fadeTo = null;
+      applyCurrent(true);
+    }
+    return raw;
   }
 
   function updateSun(target) {
     const dir = sun.userData.dir;
-    sun.target.position.copy(target);
-    sun.position.copy(target).addScaledVector(dir, 340);
+    // Snap the focus to whole shadow-map texels. Without this, a moving target
+    // resamples the shadow map every frame and every static edge shimmers.
+    const texel = (sun.shadow.camera.right - sun.shadow.camera.left) / sun.shadow.mapSize.x;
+    if (texel > 0) {
+      temp.set(
+        Math.round(target.x / texel) * texel,
+        Math.round(target.y / texel) * texel,
+        Math.round(target.z / texel) * texel
+      );
+    } else {
+      temp.copy(target);
+    }
+    sun.target.position.copy(temp);
+    sun.position.copy(temp).addScaledVector(dir, 340);
     sun.target.updateMatrixWorld();
     sun.updateMatrixWorld();
   }
@@ -230,7 +355,7 @@ export function createLighting({ scene, renderer, preset = 'day' }) {
     updateSun(target);
   }
 
-  apply(preset === 'night' ? 'night' : 'day');
+  setMode(preset === 'night' ? 'night' : 'day');
 
   return {
     sun,
@@ -242,13 +367,25 @@ export function createLighting({ scene, renderer, preset = 'day' }) {
     get preset() {
       return state.preset;
     },
-    setMode(mode) {
-      if (mode === state.mode) return;
-      apply(mode);
+    get transitioning() {
+      return !!fade;
     },
+    setMode,
+    update,
     updateSun,
     focus,
     dir: () => sun.userData.dir,
+    skySpec() {
+      return {
+        'sky-color': hex(current.skyTop),
+        'horizon-color': hex(current.skyHorizon),
+        'fog-color': hex(current.skyHorizon),
+        'fog-ground-blend': 0.9,
+        'horizon-fog-blend': 0.72,
+        'sky-horizon-blend': 0.82,
+        'atmosphere-blend': 0.87,
+      };
+    },
     temp,
   };
 }

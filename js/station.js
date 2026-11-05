@@ -15,9 +15,9 @@ import {
   makeSteel,
   makeRoofPanel,
   makeSignTexture,
-} from './materials.js?v=20261105c';
-import { mergeGeometries } from './geomutil.js?v=20261105c';
-import { DECK_TOP } from './infrastructure.js?v=20261105c';
+} from './materials.js?v=20261105h';
+import { mergeGeometries } from './geomutil.js?v=20261105h';
+import { DECK_TOP } from './infrastructure.js?v=20261105h';
 
 const HALF_LEN = 72;
 const PLATFORM_IN = 3.72;
@@ -509,24 +509,31 @@ export function buildStations(route, { anisotropy = 8, seen = null } = {}) {
     group.add(g);
     items.push(g);
   });
+  const NIGHT_ROOF = new THREE.Color(0x1b2739);
+  const NIGHT_CONCRETE = new THREE.Color(0x141b26);
+
   return {
     group,
     items,
     mats,
     setNight(night) {
-      mats.glow.opacity = night ? 0.5 : 0;
-      mats.screenMat.emissiveIntensity = night ? 1.9 : 0.5;
-      mats.glass.opacity = night ? 0.16 : 0.22;
+      this.setNightFactor(night ? 1 : 0);
+    },
+    setNightFactor(k) {
+      const t = THREE.MathUtils.clamp(k, 0, 1);
+      mats.glow.opacity = 0.5 * t;
+      mats.screenMat.emissiveIntensity = 0.5 + 1.4 * t;
+      mats.glass.opacity = 0.22 - 0.06 * t;
       // Faint city bounce on the canopy so a hall reads as a lit object from
       // the air instead of a black hole in the street grid.
-      mats.roof.emissive.setHex(night ? 0x1b2739 : 0x000000);
-      mats.roof.emissiveIntensity = night ? 0.55 : 0;
-      mats.concrete.emissive.setHex(night ? 0x141b26 : 0x000000);
-      mats.concrete.emissiveIntensity = night ? 0.4 : 0;
+      mats.roof.emissive.setHex(0x000000).lerp(NIGHT_ROOF, t);
+      mats.roof.emissiveIntensity = 0.55 * t;
+      mats.concrete.emissive.setHex(0x000000).lerp(NIGHT_CONCRETE, t);
+      mats.concrete.emissiveIntensity = 0.4 * t;
       for (const it of items) {
         it.traverse((o) => {
           if (o.material && o.material.userData.sign) {
-            o.material.emissiveIntensity = night ? 1.6 : 0.25;
+            o.material.emissiveIntensity = 0.25 + 1.35 * t;
           }
         });
       }

@@ -5,6 +5,12 @@ turnbacks and the GitHub Pages build are live. Two items are deliberately
 deferred: full saloon interiors (only visible through glass) and the multi-view
 screenshot QA sweep.
 
+**November pass:** the clock is now locked to the IST wall clock (no speed
+controls), the train picker is a custom listbox with live direction/speed,
+the day↔night switch is a ~5 s crossfade across the light rig, sky, raster,
+street glow and train lamps, and camera/shadows are filtered and texel-snapped
+so the chase view no longer shimmers.
+
 Goal: a photo-real, real-time 3D tracker for the **whole Hyderabad Metro network**
 (Red / Green / Blue), driven by the official HMRL GTFS timetable, with a
 paint-quality day/night look and production-grade performance.
@@ -71,10 +77,10 @@ paint-quality day/night look and production-grade performance.
 
 ## 6. Phase F — Night mode
 
-- [x] F1 Day/night toggle in the HUD + `?night=1` + key.
+- [x] F1 Day/night toggle in the HUD + `?night=1` + key; IST wall-clock lock so the timetable is never sped up or slowed.
 - [x] F2 Raster night grade (brightness/saturation/hue-contrast).
 - [x] F3 City lights: emissive building windows, street-lamp clusters, route glow.
-- [x] F4 Train: lit saloon, headlight beam, tail lights, door lights.
+- [x] F4 Train: lit saloon, forward-facing headlight/tail-light glow at both cabs, door lights.
 - [x] F5 Station: lit canopy soffit, sign glow, platform uplights.
 - [x] F6 Sky: deep blue gradient, moon, stars, haze glow on the horizon.
 
@@ -82,7 +88,7 @@ paint-quality day/night look and production-grade performance.
 
 - [x] G1 Draw-call budget: merge static geometry, instance repeated parts, atlas textures.
 - [x] G2 Train pooling + LOD + view culling.
-- [ ] G3 Shadow: single tight cascade, update every other frame at distance.
+- [x] G3 Shadow: single tight cascade, focus snapped to shadow-map texels to stop static-edge shimmer.
 - [x] G4 Renderer: pixel-ratio cap, powerPreference, stencil off, antialias policy.
 - [x] G5 Stats overlay (`?stats=1`) + adaptive quality if FPS < 45.
 

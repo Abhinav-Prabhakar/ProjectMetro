@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from '../vendor/RoundedBoxGeometry.js';
-import { TRAIN, COLORS } from './config.js?v=20261105c';
-import { mergeByMaterial, mergeGeometries } from './geomutil.js?v=20261105c';
+import { TRAIN, COLORS } from './config.js?v=20261105h';
+import { mergeByMaterial, mergeGeometries } from './geomutil.js?v=20261105h';
+import { makeGlowRadial } from './materials.js?v=20261105h';
+
+// One shared radial glow texture for every proxy lamp; each set only needs its
+// own sprite material to swap head/tail colours.
+let proxyGlowTex = null;
 
 // ---------------------------------------------------------------------------
 // Procedural materials & textures
@@ -946,9 +951,9 @@ function buildCab(materials, textures, frontTexture) {
     panelGeom,
     new THREE.MeshStandardMaterial({
       map: frontTexture,
-      metalness: 0.32,
-      roughness: 0.3,
-      envMapIntensity: 0.85,
+      metalness: 0.1,
+      roughness: 0.42,
+      envMapIntensity: 0.4,
     })
   );
   panel.position.set(0, 2.36, zFront + 0.003);
@@ -989,6 +994,26 @@ function buildCab(materials, textures, frontTexture) {
 
   // headlight housings + lamps
   const headlights = [];
+  const glowMat = new THREE.MeshBasicMaterial({
+    map: textures.glow,
+    color: 0xfff2d8,
+    transparent: true,
+    opacity: 0.6,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false,
+    side: THREE.DoubleSide,
+  });
+  const haloMat = new THREE.MeshBasicMaterial({
+    map: textures.glow,
+    color: 0xffe7b4,
+    transparent: true,
+    opacity: 0.2,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false,
+    side: THREE.DoubleSide,
+  });
   for (const sx of [-1, 1]) {
     const housing = new THREE.Mesh(
       new THREE.BoxGeometry(0.56, 0.27, 0.05),
@@ -1019,20 +1044,23 @@ function buildCab(materials, textures, frontTexture) {
     bar.position.set(sx * 0.84, 1.73, zFront + 0.043);
     group.add(bar);
 
-    const glowMat = new THREE.SpriteMaterial({
-      map: textures.glow,
-      color: 0xfff2d8,
-      transparent: true,
-      opacity: 0.52,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    const glow = new THREE.Sprite(glowMat);
-    glow.scale.set(0.62, 0.62, 1);
-    glow.position.set(sx * 0.7, 1.74, zFront + 0.08);
+    // A billboard sprite cannot survive this custom projection layer (the
+    // real camera orientation lives in the projection matrix, not in
+    // matrixWorldInverse, so sprites end up edge-on). A plane on the cab face
+    // is both correct and reliable: head-on it blooms, from the side it hides.
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.7), glowMat);
+    glow.renderOrder = 6;
+    glow.position.set(sx * 0.7, 1.74, zFront + 0.06);
     group.add(glow);
 
-    headlights.push({ lampMat, barMat, glowMat });
+    // A second, much wider and fainter halo so the lamps read as a light
+    // source and not just a bright decal, especially from the chase camera.
+    const halo = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 4.2), haloMat);
+    halo.renderOrder = 5;
+    halo.position.set(sx * 0.7, 1.74, zFront + 0.04);
+    group.add(halo);
+
+    headlights.push({ lampMat, barMat, glowMat, haloMat, head: false });
   }
 
   // upper red markers
@@ -1206,9 +1234,12 @@ function buildCar(materials, textures, texturesData, { index, cabPlus, cabMinus 
       emissiveMap: materials.sideGlowMap,
       emissive: 0xffffff,
       emissiveIntensity: 0,
-      roughness: 0.52,
-      metalness: 0.08,
-      envMapIntensity: 0.55,
+      // The livery is a painted flat surface, not a mirror. Keeping metalness
+      // at zero and the environment term low stops the pale sky from washing
+      // the blue band and the window band into one bright silver smear.
+      roughness: 0.66,
+      metalness: 0.0,
+      envMapIntensity: 0.16,
       polygonOffset: true,
       polygonOffsetFactor: -2,
       polygonOffsetUnits: -2,
@@ -1438,12 +1469,15 @@ function makeMaterials(anisotropy) {
   const steel = new THREE.MeshPhysicalMaterial({
     map: steelMap,
     color: 0xf6f9fa,
-    metalness: 0.58,
-    roughness: 0.33,
+    // Body shell only shows at the rounded shoulders and edges; a high
+    // metalness term there reflects the whole sky and makes the car look
+    // glassy. Lower it so the shell reads as painted stainless.
+    metalness: 0.38,
+    roughness: 0.38,
     roughnessMap: roughMap,
-    clearcoat: 0.24,
-    clearcoatRoughness: 0.3,
-    envMapIntensity: 1.25,
+    clearcoat: 0.16,
+    clearcoatRoughness: 0.34,
+    envMapIntensity: 0.85,
   });
 
   const doorSteel = new THREE.MeshPhysicalMaterial({
@@ -1466,12 +1500,12 @@ function makeMaterials(anisotropy) {
   });
 
   const glass = new THREE.MeshPhysicalMaterial({
-    color: 0x081114,
-    metalness: 0.05,
-    roughness: 0.46,
-    clearcoat: 0.14,
-    clearcoatRoughness: 0.3,
-    envMapIntensity: 0.16,
+    color: 0x060d10,
+    metalness: 0.03,
+    roughness: 0.5,
+    clearcoat: 0.1,
+    clearcoatRoughness: 0.34,
+    envMapIntensity: 0.1,
     emissive: 0x060f12,
     emissiveIntensity: 1,
   });
@@ -1591,17 +1625,31 @@ export function createTrain({ anisotropy = 8, color = '#0b5fae' } = {}) {
   }
 
   // head / tail lighting
+  let lampNight = 0;
   const setCabMode = (cab, mode) => {
     if (!cab) return;
     const head = mode === 'head';
     const tail = mode === 'tail';
     for (const light of cab.headlights) {
+      light.head = head;
       light.lampMat.emissive.setHex(head ? 0xfff3dc : tail ? 0xff1a12 : 0x0a0a0a);
-      light.lampMat.emissiveIntensity = head ? 3.8 : tail ? 2.6 : 0;
+      light.lampMat.emissiveIntensity = head ? 5.2 : tail ? 3.6 : 0;
       light.barMat.emissive.setHex(head ? 0xdff4ff : tail ? 0x9b0d08 : 0x050505);
       light.barMat.emissiveIntensity = head ? 3.2 : tail ? 0.8 : 0;
       light.glowMat.color.setHex(head ? 0xfff2d8 : 0xff2a1e);
-      light.glowMat.opacity = head ? 0.55 : tail ? 0.32 : 0;
+      light.glowMat.opacity = head
+        ? THREE.MathUtils.lerp(0.5, 0.9, lampNight)
+        : tail
+          ? THREE.MathUtils.lerp(0.24, 0.55, lampNight)
+          : 0;
+      if (light.haloMat) {
+        light.haloMat.color.setHex(head ? 0xffe7b4 : 0xff3a24);
+        light.haloMat.opacity = head
+          ? THREE.MathUtils.lerp(0.14, 0.32, lampNight)
+          : tail
+            ? THREE.MathUtils.lerp(0.06, 0.18, lampNight)
+            : 0;
+      }
     }
     cab.destMat.emissiveIntensity = head ? 2.8 : 0.18;
   };
@@ -1611,6 +1659,13 @@ export function createTrain({ anisotropy = 8, color = '#0b5fae' } = {}) {
   const root = new THREE.Group();
   root.name = 'train-detailed';
   for (const c of cars) root.add(c.group);
+
+  const NIGHT = {
+    glassEmissive: new THREE.Color(0x3a2a16),
+    glassColor: new THREE.Color(0x1a140c),
+    steelEmissive: new THREE.Color(0x1a2330),
+    sideColor: new THREE.Color(0x9aa2a6),
+  };
 
   return {
     group: root,
@@ -1641,23 +1696,42 @@ export function createTrain({ anisotropy = 8, color = '#0b5fae' } = {}) {
       }
     },
     setNight(night) {
-      materials.glass.emissive.setHex(night ? 0x3a2a16 : 0x060f12);
-      materials.glass.emissiveIntensity = night ? 1.25 : 1;
-      materials.glass.color.setHex(night ? 0x1a140c : 0x081114);
-      materials.doorLeaf.emissiveIntensity = night ? 0.85 : 0;
+      this.setNightFactor(night ? 1 : 0);
+    },
+    // Continuous 0..1 night factor so the day ↔ night crossfade reaches the
+    // train at the same speed as the light rig. Nothing here is an on/off
+    // switch, which is what used to make the set pop between two looks.
+    setNightFactor(k) {
+      const t = THREE.MathUtils.clamp(k, 0, 1);
+      const lerp = THREE.MathUtils.lerp;
+      lampNight = t;
+
+      materials.glass.emissive.setHex(0x060f12).lerp(NIGHT.glassEmissive, t);
+      materials.glass.emissiveIntensity = lerp(1, 1.25, t);
+      materials.glass.color.setHex(0x081114).lerp(NIGHT.glassColor, t);
+      materials.doorLeaf.emissiveIntensity = 0.85 * t;
+
       // At night the stainless picks up the city: a faint cool emissive plus a
       // stronger environment term keeps the body from going pure black.
-      materials.steel.emissive.setHex(night ? 0x1a2330 : 0x000000);
-      materials.steel.emissiveIntensity = night ? 0.6 : 0;
-      materials.steel.envMapIntensity = night ? 1.5 : 1.25;
+      materials.steel.emissive.setHex(0x000000).lerp(NIGHT.steelEmissive, t);
+      materials.steel.emissiveIntensity = 0.6 * t;
+      materials.steel.envMapIntensity = lerp(0.85, 1.1, t);
+
       for (const car of cars) {
         for (const m of car.sideMats || []) {
-          m.emissiveIntensity = night ? 0.95 : 0;
-          m.envMapIntensity = night ? 1.15 : 0.55;
-          m.color.setHex(night ? 0x9aa2a6 : 0xffffff);
+          m.emissiveIntensity = 0.95 * t;
+          m.envMapIntensity = lerp(0.16, 0.3, t);
+          m.color.setHex(0xffffff).lerp(NIGHT.sideColor, t);
         }
         for (const cab of [car.cabA, car.cabB]) {
-          if (cab && cab.destMat) cab.destMat.emissiveIntensity = night ? 2.4 : 0.18;
+          if (cab && cab.destMat) cab.destMat.emissiveIntensity = lerp(0.18, 2.4, t);
+          if (!cab) continue;
+          for (const light of cab.headlights) {
+            light.glowMat.opacity = light.head ? lerp(0.5, 0.9, t) : lerp(0.24, 0.55, t);
+            if (light.haloMat) {
+              light.haloMat.opacity = light.head ? lerp(0.14, 0.32, t) : lerp(0.06, 0.18, t);
+            }
+          }
         }
       }
     },
@@ -1675,12 +1749,12 @@ export function createTrainProxy({ color = '#0b5fae' } = {}) {
 
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.45,
-    metalness: 0.42,
-    envMapIntensity: 0.9,
+    roughness: 0.55,
+    metalness: 0.18,
+    envMapIntensity: 0.35,
   });
-  const headMat = new THREE.MeshBasicMaterial({ color: 0x161310 });
-  const tailMat = new THREE.MeshBasicMaterial({ color: 0x2a0705 });
+  const headMat = new THREE.MeshBasicMaterial({ color: 0x161310, toneMapped: false });
+  const tailMat = new THREE.MeshBasicMaterial({ color: 0x2a0705, toneMapped: false });
 
   const silver = new THREE.Color(0xd8dcdd);
   const glass = new THREE.Color(0x0b1518);
@@ -1736,7 +1810,7 @@ export function createTrainProxy({ color = '#0b5fae' } = {}) {
     color: 0xffc98a,
     transparent: true,
     opacity: 0,
-    blending: THREE.AdditiveBlending,
+    blending: THREE.NormalBlending,
     depthWrite: false,
     toneMapped: false,
     side: THREE.DoubleSide,
@@ -1771,25 +1845,81 @@ export function createTrainProxy({ color = '#0b5fae' } = {}) {
     group.add(mesh);
     return mesh;
   };
-  lampPair(zf + 0.08, headMat);
-  lampPair(-zf - 0.08, tailMat);
+  // The model's +Z always points up-chainage, so when the service direction is
+  // negative the -Z end is the front. Swap which end carries the white lamp.
+  const plusEnd = lampPair(zf + 0.08, headMat);
+  const minusEnd = lampPair(-zf - 0.08, tailMat);
+
+  if (!proxyGlowTex) proxyGlowTex = makeGlowRadial(96);
+  const lampGlow = (z, outward) => {
+    const m = new THREE.MeshBasicMaterial({
+      map: proxyGlowTex,
+      color: 0xfff2d8,
+      transparent: true,
+      opacity: 0.4,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      toneMapped: false,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), m);
+    mesh.position.set(0, 1.95, z);
+    if (outward < 0) mesh.rotation.y = Math.PI;
+    mesh.renderOrder = 5;
+    group.add(mesh);
+    return { mesh, mat: m };
+  };
+  const plusLamp = lampGlow(zf + 0.14, 1);
+  const minusLamp = lampGlow(-zf - 0.14, -1);
+
+  const HEAD_DAY = new THREE.Color(0xfff2d0);
+  const HEAD_NIGHT = new THREE.Color(0xfff5da);
+  const TAIL_DAY = new THREE.Color(0x2a0705);
+  const TAIL_NIGHT = new THREE.Color(0xff3020);
+  const SPRITE_HEAD = new THREE.Color(0xfff2d8);
+  const SPRITE_TAIL = new THREE.Color(0xff3422);
+
+  let direction = 1;
+  let nightK = 0;
+
+  function applyLamps() {
+    const forward = direction >= 0;
+    plusEnd.material = forward ? headMat : tailMat;
+    minusEnd.material = forward ? tailMat : headMat;
+
+    headMat.color.lerpColors(HEAD_DAY, HEAD_NIGHT, nightK);
+    tailMat.color.lerpColors(TAIL_DAY, TAIL_NIGHT, nightK);
+
+    const plusLeading = forward;
+    plusLamp.mat.color.copy(plusLeading ? SPRITE_HEAD : SPRITE_TAIL);
+    minusLamp.mat.color.copy(plusLeading ? SPRITE_TAIL : SPRITE_HEAD);
+    plusLamp.mat.opacity = forward
+      ? THREE.MathUtils.lerp(0.35, 0.72, nightK)
+      : THREE.MathUtils.lerp(0.2, 0.5, nightK);
+    minusLamp.mat.opacity = forward
+      ? THREE.MathUtils.lerp(0.2, 0.5, nightK)
+      : THREE.MathUtils.lerp(0.35, 0.72, nightK);
+  }
+  applyLamps();
 
   return {
     group,
     cars,
-    setMode(direction) {
-      const forward = direction > 0;
-      headMat.color.setHex(forward ? 0xfff2d0 : 0x2a0705);
-      tailMat.color.setHex(forward ? 0x2a0705 : 0xff3020);
+    setMode(dir) {
+      direction = dir;
+      applyLamps();
     },
     setDoors() {},
     setDestination() {},
     setNight(night) {
-      mat.emissive.setHex(night ? 0x141a22 : 0x000000);
-      mat.emissiveIntensity = night ? 0.85 : 0;
-      glowMat.opacity = night ? 0.9 : 0;
-      headMat.color.setHex(night ? 0xfff5da : 0x161310);
-      tailMat.color.setHex(night ? 0xff3020 : 0x2a0705);
+      this.setNightFactor(night ? 1 : 0);
+    },
+    setNightFactor(k) {
+      nightK = THREE.MathUtils.clamp(k, 0, 1);
+      mat.emissive.setHex(0x141a22);
+      mat.emissiveIntensity = 0.7 * nightK;
+      glowMat.opacity = 0.72 * nightK;
+      applyLamps();
     },
   };
 }

@@ -7,15 +7,15 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { MAP, TRAIN, SIM } from './config.js?v=20261105c';
-import { loadNetwork } from './network.js?v=20261105c';
-import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261105c';
-import { buildStations } from './station.js?v=20261105c';
-import { createTrain, createTrainProxy } from './train.js?v=20261105c';
-import { createWorld } from './world.js?v=20261105c';
-import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261105c';
-import { makeGlowRadial } from './materials.js?v=20261105c';
-import { mergeGeometries } from './geomutil.js?v=20261105c';
+import { MAP, TRAIN, SIM } from './config.js?v=20261105h';
+import { loadNetwork } from './network.js?v=20261105h';
+import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261105h';
+import { buildStations } from './station.js?v=20261105h';
+import { createTrain, createTrainProxy } from './train.js?v=20261105h';
+import { createWorld } from './world.js?v=20261105h';
+import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261105h';
+import { makeGlowRadial } from './materials.js?v=20261105h';
+import { mergeGeometries } from './geomutil.js?v=20261105h';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -53,7 +53,13 @@ const els = {
   notes: $('notes'),
   notesClose: $('notesClose'),
   lineSwitch: $('lineSwitch'),
-  trainPicker: $('trainPicker'),
+  trainSelect: $('trainSelect'),
+  trainSelectBtn: $('trainSelectBtn'),
+  trainSelectMenu: $('trainSelectMenu'),
+  trainSelectList: $('trainSelectList'),
+  tsId: $('tsId'),
+  tsSub: $('tsSub'),
+  tsDot: $('tsDot'),
   nightBtn: $('nightBtn'),
   serviceLabel: $('serviceLabel'),
   trainCount: $('trainCount'),
@@ -81,14 +87,50 @@ const scratch = {
 const state = {
   epoch: Date.now() / 1000,
   playing: true,
-  rate: 1,
   lineId: 'BLUE',
   followId: null,
   night: new URLSearchParams(location.search).get('night') === '1',
+  nightK: new URLSearchParams(location.search).get('night') === '1' ? 1 : 0,
   doors: 0,
   vehicle: null,
   hasUserSelected: false,
 };
+
+// ---------------------------------------------------------------------------
+// Timetable lock
+//
+// The simulated clock is not an accumulator: it is derived from the same IST
+// wall clock the timetable is published in. performance.now() gives a smooth
+// monotonic source between anchors; every few seconds the anchor is corrected
+// against Date.now() so a dropped frame, a suspended tab or a slow render can
+// never leave the train minutes behind the published schedule.
+// ---------------------------------------------------------------------------
+const clock = {
+  epoch: Date.now() / 1000,
+  perf: performance.now(),
+  syncAt: performance.now(),
+  drift: 0,
+};
+
+function tickClock() {
+  const perf = performance.now();
+  if (perf - clock.syncAt > 4000) {
+    clock.epoch = Date.now() / 1000;
+    clock.perf = perf;
+    clock.syncAt = perf;
+  }
+  state.epoch = clock.epoch + (perf - clock.perf) / 1000;
+  clock.drift = Date.now() / 1000 - state.epoch;
+  return state.epoch;
+}
+
+function resetClock() {
+  clock.epoch = Date.now() / 1000;
+  clock.perf = performance.now();
+  clock.syncAt = clock.perf;
+  clock.drift = 0;
+  state.epoch = clock.epoch;
+}
 
 let network = null;
 let fleet = null;
@@ -107,6 +149,11 @@ const cam = {
   lookAhead: 22,
   lastInteract: performance.now(),
   init: false,
+  // Low-pass state for the chase rig. The timetable position is exact; these
+  // only remove sub-pixel noise from the projection so the city does not
+  // shimmer when the camera is parked on a train.
+  smoothFocus: new THREE.Vector3(),
+  smoothHeading: null,
   // Debug / cinematic override. When set, the frame loop leaves the map camera
   // exactly where the caller put it and only keeps the culling focus in sync.
   free: null,
@@ -323,7 +370,7 @@ async function boot() {
     const focus = network.byId.get('BLUE').getPoint(midStation.s);
     selectNearestTrain('BLUE', focus, true);
 
-    applyNight();
+    applyNight({ immediate: true });
     placeAll();
 
     ready = true;
@@ -351,11 +398,130 @@ function activeVehicles(near = null, radius = 5000) {
   return fleet.snapshot(t, svc, { near, radius });
 }
 
-function vehicleLabel(v) {
+// ---------------------------------------------------------------------------
+// Train selector
+//
+// A native <select> cannot show the line colour, direction and live state at a
+// glance, so the dock carries a small custom listbox. It only ever lists sets
+// that are running right now, nearest first, and it never steals the clock:
+// the timetable keeps moving while the menu is open.
+// ---------------------------------------------------------------------------
+
+const picker = {
+  open: false,
+  items: [],
+  index: 0,
+  updatedAt: 0,
+};
+
+const escapeHtml = (s) =>
+  String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function pickerItem(v) {
   const line = v.block.line;
-  const dirName = v.pattern && v.pattern.dir > 0 ? line.to : line.from;
-  const speed = v.phase === 'run' ? `${Math.round(v.v * 3.6)} km/h` : v.kind === 'turnback' ? 'turning back' : 'at platform';
-  return `${line.id} · ${v.block.id.split(':')[1]} · to ${dirName} · ${speed}`;
+  const to = v.pattern && v.pattern.dir > 0 ? line.to : line.from;
+  const moving = v.phase === 'run' || v.phase === 'arriving';
+  return {
+    id: v.block.id,
+    lineId: line.id,
+    color: line.color,
+    number: v.block.id.split(':')[1],
+    to,
+    kmh: moving ? Math.round(v.v * 3.6) : 0,
+    state:
+      v.kind === 'turnback'
+        ? 'TURNING BACK'
+        : v.phase === 'dwell'
+          ? v.doors > 0.5
+            ? 'BOARDING'
+            : 'AT PLATFORM'
+          : v.phase === 'arriving'
+            ? 'ARRIVING'
+            : 'IN SERVICE',
+    distance: v.distance ?? 0,
+    active: v.block.id === state.followId,
+  };
+}
+
+function refreshPicker(force = false) {
+  if (!els.trainSelectList || picker.open) return;
+  const now = performance.now();
+  if (!force && now - picker.updatedAt < 2000) return;
+  picker.updatedAt = now;
+
+  const list = activeVehicles(scratch.focus, 6000);
+  list.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+  picker.items = list.slice(0, 16).map(pickerItem);
+  renderPicker();
+}
+
+function renderPicker() {
+  if (!els.trainSelectList) return;
+  const rows = picker.items.map((item, i) => {
+    const dist = item.distance < 1000 ? `${Math.round(item.distance)} m` : `${(item.distance / 1000).toFixed(1)} km`;
+    const speed = item.kmh > 0 ? `${item.kmh} km/h` : item.state;
+    return (
+      `<li role="option" aria-selected="${item.active}" data-index="${i}" data-id="${escapeHtml(item.id)}"` +
+      ` class="ts-option${item.active ? ' active' : ''}${i === picker.index ? ' cursor' : ''}">` +
+      `<span class="ts-badge" style="--c:${item.color}">${escapeHtml(item.lineId)}</span>` +
+      `<span class="ts-option-main"><b>${escapeHtml(item.number)}</b><em>TO ${escapeHtml(item.to.toUpperCase())}</em></span>` +
+      `<span class="ts-option-meta"><b>${escapeHtml(speed)}</b><em>${escapeHtml(dist)}</em></span>` +
+      `</li>`
+    );
+  });
+  els.trainSelectList.innerHTML =
+    rows.join('') || '<li class="ts-empty">No sets are running right now.</li>';
+}
+
+function updatePickerLabel() {
+  if (!els.tsId) return;
+  const v = state.vehicle;
+  const line = currentLine();
+  const cur = picker.items.find((x) => x.active) || (v ? pickerItem(v) : null);
+  if (cur) {
+    els.tsId.textContent = cur.number;
+    els.tsSub.textContent = `${cur.lineId} · TO ${cur.to.toUpperCase()}`;
+    if (els.tsDot) els.tsDot.style.background = line.color;
+  } else {
+    els.tsId.textContent = 'SELECT SET';
+    els.tsSub.textContent = `${line.id} · NEAREST`;
+    if (els.tsDot) els.tsDot.style.background = line.color;
+  }
+}
+
+function setPickerOpen(open) {
+  if (open === picker.open || !els.trainSelect) return;
+  picker.open = open;
+  els.trainSelect.classList.toggle('open', open);
+  els.trainSelectBtn.setAttribute('aria-expanded', String(open));
+  if (open) {
+    refreshPicker(true);
+    picker.index = Math.max(0, picker.items.findIndex((x) => x.active));
+    renderPicker();
+    els.trainSelectMenu.hidden = false;
+    requestAnimationFrame(() => {
+      const active = els.trainSelectList.querySelector('.ts-option.cursor');
+      if (active) active.scrollIntoView({ block: 'nearest' });
+    });
+  } else {
+    els.trainSelectMenu.hidden = true;
+  }
+}
+
+function movePicker(step) {
+  if (!picker.items.length) return;
+  picker.index = (picker.index + step + picker.items.length) % picker.items.length;
+  renderPicker();
+  const active = els.trainSelectList.querySelector('.ts-option.cursor');
+  if (active) active.scrollIntoView({ block: 'nearest' });
+}
+
+function choosePicker(index) {
+  const item = picker.items[index];
+  if (!item) return;
+  setPickerOpen(false);
+  selectVehicle(item.id);
+  recenterCamera();
 }
 
 function selectNearestTrain(lineId, point, initial = false) {
@@ -481,6 +647,7 @@ function placeAll() {
     const lr = lineRuntime.get(state.lineId);
     if (lr) {
       placeCarsFor(lr.detailed, lr.route, state.vehicle);
+      lr.detailed.setMode(state.vehicle.dir);
       lr.detailed.setDoors(state.vehicle.doors ?? 0);
     }
   }
@@ -536,11 +703,20 @@ function updateCamera(dt, snap = false) {
   const v = state.vehicle;
   const s = v ? v.s : line.length / 2;
   const dir = v ? v.dir : 1;
-  const heading = line.headingAt(s) + (dir > 0 ? 0 : 180);
+  const rawHeading = line.headingAt(s) + (dir > 0 ? 0 : 180);
+  const rawFocus = measureFocus();
 
   if (!cam.init || snap) {
-    cam.bearing = heading + MAP.chaseBearing;
+    cam.bearing = rawHeading + MAP.chaseBearing + cam.bearingOffset;
+    cam.smoothHeading = rawHeading;
+    cam.smoothFocus.copy(rawFocus);
     cam.init = true;
+  } else {
+    // Short, frame-rate independent low-pass filters. They are fast enough
+    // that the train still feels planted, but remove the centimetre-scale
+    // tangent noise that otherwise reads as camera shake at street zoom.
+    cam.smoothHeading = lerpAngle(cam.smoothHeading, rawHeading, 1 - Math.exp(-dt * 12));
+    cam.smoothFocus.lerp(rawFocus, 1 - Math.exp(-dt * 16));
   }
 
   const now = performance.now();
@@ -548,17 +724,15 @@ function updateCamera(dt, snap = false) {
     cam.bearingOffset *= Math.exp(-dt * 0.9);
   }
 
-  const targetBearing = heading + MAP.chaseBearing + cam.bearingOffset;
-  cam.bearing = snap ? targetBearing : lerpAngle(cam.bearing, targetBearing, 1 - Math.exp(-dt * 2.2));
+  const targetBearing = cam.smoothHeading + MAP.chaseBearing + cam.bearingOffset;
+  cam.bearing = snap ? targetBearing : lerpAngle(cam.bearing, targetBearing, 1 - Math.exp(-dt * 2.6));
   cam.pitch += (cam.pitchTarget - cam.pitch) * (1 - Math.exp(-dt * 4.2));
   cam.zoom += (cam.zoomTarget - cam.zoom) * (1 - Math.exp(-dt * 4.2));
 
-  const focus = measureFocus();
+  const focus = cam.smoothFocus;
   const br = (cam.bearing * Math.PI) / 180;
   const pr = (cam.pitch * Math.PI) / 180;
   const ahead = cam.lookAhead * (0.55 + 0.45 * Math.sin(pr));
-  const lat = v ? v.lateral ?? -TRACK_OFFSET * v.dir : 0;
-  const t = line.getTangent(s);
   const cx = focus.x + Math.sin(br) * ahead + Math.cos(br) * MAP.cameraOffset;
   const cz = focus.z + Math.cos(br) * ahead - Math.sin(br) * MAP.cameraOffset;
   const ll = line.toLngLat(cx, cz);
@@ -601,8 +775,6 @@ function nextStationOf(v) {
   const idx = Math.min(v.nextIdx ?? 1, v.pattern.stops.length - 1);
   return line.stations[v.pattern.stops[idx].st] || null;
 }
-
-let lastPickerUpdate = 0;
 
 function updateHud(dt) {
   const line = currentLine();
@@ -729,19 +901,10 @@ function updateHud(dt) {
   }
 
   // picker, refreshed occasionally and never while open
-  const now = performance.now();
-  if (now - lastPickerUpdate > 2500 && els.trainPicker && document.activeElement !== els.trainPicker) {
-    lastPickerUpdate = now;
-    const focus = scratch.focus;
-    const list = activeVehicles(focus, 4000);
-    list.sort((a, b) => a.distance - b.distance);
-    const chosen = list.slice(0, 14);
-    const html = chosen
-      .map((x) => `<option value="${x.block.id}">${vehicleLabel(x)}</option>`)
-      .join('');
-    els.trainPicker.innerHTML = html;
-    if (state.followId) els.trainPicker.value = state.followId;
-    if (els.mapStatus) els.mapStatus.textContent = `${state.renderedTrains || 1} SETS · ${cam.zoom.toFixed(2)}× · ${Math.round(cam.pitch)}°`;
+  if (!picker.open) refreshPicker();
+  updatePickerLabel();
+  if (els.mapStatus) {
+    els.mapStatus.textContent = `${state.renderedTrains || 1} SETS · ${cam.zoom.toFixed(2)}× · ${Math.round(cam.pitch)}°`;
   }
 }
 
@@ -757,47 +920,54 @@ function syncLineUI() {
   document.documentElement.dataset.line = state.lineId;
 }
 
-function applyNight() {
-  document.documentElement.dataset.timeMode = state.night ? 'night' : 'day';
-  if (!world) return;
-  world.setTimeMode(state.night ? 'night' : 'day');
-  for (const lr of lineRuntime.values()) {
-    lr.stations.setNight(state.night);
-    lr.detailed.setNight(state.night);
-    for (const p of lr.proxies) p.setNight(state.night);
-  }
-  if (state.stationGlow) {
-    state.stationGlow.material.opacity = state.night ? 0.85 : 0;
-  }
-  if (state.interchangeLinks && state.interchangeLinks.lamp) {
-    state.interchangeLinks.lamp.opacity = state.night ? 0.8 : 0;
-  }
+const NIGHT_TWEEN = 4.8;   // seconds for the full day ↔ night crossfade
+
+function applyNight({ immediate = false } = {}) {
+  const target = state.night ? 1 : 0;
+  if (immediate) state.nightK = target;
+  if (world) world.setTimeMode(state.night ? 'night' : 'day', { duration: immediate ? 0 : NIGHT_TWEEN * 1000 });
+  if (immediate) applyNightFactor();
   if (els.nightBtn) {
     els.nightBtn.classList.toggle('active', state.night);
     els.nightBtn.setAttribute('aria-pressed', String(state.night));
   }
-  applySceneGrade();
 }
 
-function applySceneGrade() {
-  // tone the whole 3D layer slightly differently at night
-  const map = world && world.map;
-  if (!map) return;
+function stepNight(dt) {
+  const target = state.night ? 1 : 0;
+  if (state.nightK === target) return;
+  const step = dt / NIGHT_TWEEN;
+  state.nightK = target > state.nightK
+    ? Math.min(target, state.nightK + step)
+    : Math.max(target, state.nightK - step);
+  applyNightFactor();
+}
+
+// Emissive / glow terms that live in geometry rather than in the light rig all
+// read from one 0..1 night factor, so the city does not snap from noon to
+// midnight around the trains while the sky is still mid-transition.
+function applyNightFactor() {
+  const k = state.nightK;
+  for (const lr of lineRuntime.values()) {
+    lr.stations.setNightFactor(k);
+    lr.detailed.setNightFactor(k);
+    for (const p of lr.proxies) p.setNightFactor(k);
+  }
+  if (state.stationGlow) state.stationGlow.material.opacity = 0.85 * k;
+  if (state.interchangeLinks && state.interchangeLinks.lamp) {
+    state.interchangeLinks.lamp.opacity = 0.8 * k;
+  }
 }
 
 function setPlaying(playing) {
+  // Resuming from a pause re-anchors to the wall clock, so the set is always
+  // exactly where the published timetable says it should be right now.
+  if (playing && !state.playing) resetClock();
   state.playing = playing;
   if (els.playBtn) {
     els.playBtn.classList.toggle('paused', !playing);
     els.playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
   }
-}
-
-function setRate(rate) {
-  state.rate = rate;
-  document.querySelectorAll('.dock-btn.rate').forEach((b) => {
-    b.classList.toggle('active', Number(b.dataset.rate) === rate);
-  });
 }
 
 function toggleNight() {
@@ -828,26 +998,41 @@ function bindControls() {
       recenterCamera();
     });
   }
-  if (els.trainPicker) {
-    els.trainPicker.addEventListener('change', () => {
-      selectVehicle(els.trainPicker.value);
-      recenterCamera();
+  if (els.trainSelectBtn && els.trainSelectMenu) {
+    els.trainSelectBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setPickerOpen(!picker.open);
+    });
+    els.trainSelectMenu.addEventListener('click', (e) => {
+      const row = e.target.closest('.ts-option');
+      if (!row) return;
+      choosePicker(Number(row.dataset.index));
+    });
+    document.addEventListener('pointerdown', (e) => {
+      if (picker.open && !els.trainSelect.contains(e.target)) setPickerOpen(false);
+    });
+    els.trainSelect.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!picker.open) setPickerOpen(true);
+        else movePicker(e.key === 'ArrowDown' ? 1 : -1);
+      } else if (e.key === 'Enter' && picker.open) {
+        e.preventDefault();
+        choosePicker(picker.index);
+      } else if (e.key === 'Escape' && picker.open) {
+        e.preventDefault();
+        setPickerOpen(false);
+        els.trainSelectBtn.focus();
+      }
     });
   }
-
-  document.querySelectorAll('.dock-btn.rate').forEach((b) => {
-    b.addEventListener('click', () => setRate(Number(b.dataset.rate)));
-  });
 
   window.addEventListener('keydown', (e) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
     if (e.code === 'Space') {
       e.preventDefault();
       setPlaying(!state.playing);
-    } else if (e.key === '1') setRate(0.5);
-    else if (e.key === '2') setRate(1);
-    else if (e.key === '3') setRate(4);
-    else if (e.key.toLowerCase() === 'r') recenterCamera();
+    } else if (e.key.toLowerCase() === 'r') recenterCamera();
     else if (e.key.toLowerCase() === 'i') toggleNotes();
     else if (e.key.toLowerCase() === 'h') document.body.classList.toggle('hide-ui');
     else if (e.key.toLowerCase() === 'n') toggleNight();
@@ -862,7 +1047,10 @@ function bindControls() {
       const visible = !document.body.classList.contains('no-buildings');
       world.setBuildingsVisible(visible);
       document.body.classList.toggle('no-buildings', !visible);
-    } else if (e.key === 'Escape') toggleNotes(false);
+    } else if (e.key === 'Escape') {
+      toggleNotes(false);
+      setPickerOpen(false);
+    }
   });
 }
 
@@ -958,7 +1146,7 @@ function frame(now) {
   last = now;
   const dt = Math.min(0.1, Math.max(0.001, raw));
 
-  if (state.playing) state.epoch += dt * state.rate;
+  if (state.playing) tickClock();
 
   const t = istParts(state.epoch).sec;
   const svc = svcIndexFor(network, state.epoch);
@@ -970,8 +1158,10 @@ function frame(now) {
     }
   }
 
+  stepNight(dt);
   const focus = updateCamera(dt);
   placeAll();
+  world.update(dt);
   world.updateSun(focus);
 
   hudAccum += dt;
@@ -1025,7 +1215,6 @@ window.metro = {
   get fleet() { return fleet; },
   get state() { return state; },
   cam,
-  setRate,
   setPlaying,
   recenterCamera,
   toggleNight,

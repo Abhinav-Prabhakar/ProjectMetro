@@ -10,8 +10,8 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { MAP } from './config.js?v=20261105c';
-import { createLighting, PRESETS } from './lighting.js?v=20261105c';
+import { MAP } from './config.js?v=20261105h';
+import { createLighting, PRESETS } from './lighting.js?v=20261105h';
 
 const ESRI_TILES =
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
@@ -21,6 +21,10 @@ function buildStyle(network) {
     version: 8,
     name: 'Hyderabad Metro',
     glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+    // Every paint change below eases over the same window as the 3D rig and the
+    // CSS grade, which is what makes the day ↔ night switch a single slow fade
+    // rather than a slideshow of separate layers snapping.
+    transition: { duration: 4200, delay: 0 },
     sky: {
       'sky-color': '#7fb0d8',
       'horizon-color': '#dbe3da',
@@ -405,44 +409,40 @@ export function createWorld({ network, sceneObjects, onProgress = () => {} }) {
     shadowCatcher.position.set(target.x, 0.05, target.z);
   }
 
+  const NIGHT_STREETS = ['night-streets-bloom', 'night-streets-glow', 'night-streets-core'];
+  const NIGHT_STREET_OPACITY = {
+    'night-streets-bloom': 0.1,
+    'night-streets-glow': 0.26,
+    'night-streets-core': 0.46,
+  };
+
+  let skyTries = 0;
+  let skyFade = null;
+  let skyAccum = 1;
+  let nightStreetTimer = 0;
+
   // setSky needs a fully parsed style; on a cold load (or a slow Pages
   // request) the sky spec is not there yet. Retry briefly instead of throwing
   // out of the boot sequence.
-  let skyTries = 0;
-  function applySky(night) {
-    const spec = night
-      ? {
-          'sky-color': '#04070d',
-          'horizon-color': '#17243a',
-          'fog-color': '#091120',
-          'fog-ground-blend': 0.85,
-          'horizon-fog-blend': 0.75,
-          'sky-horizon-blend': 0.85,
-          'atmosphere-blend': 0.9,
-        }
-      : {
-          'sky-color': '#7fb0d8',
-          'horizon-color': '#dbe3da',
-          'fog-color': '#dbe3da',
-          'fog-ground-blend': 0.9,
-          'horizon-fog-blend': 0.7,
-          'sky-horizon-blend': 0.8,
-          'atmosphere-blend': 0.85,
-        };
-    if (!map.setSky) return;
+  function commitSky() {
+    if (!map.setSky || !lighting || !map.isStyleLoaded()) return false;
     try {
-      map.setSky(spec);
+      map.setSky(lighting.skySpec());
       skyTries = 0;
+      return true;
     } catch (err) {
-      if (skyTries++ < 12) setTimeout(() => applySky(night), 350);
+      if (skyTries++ < 12) setTimeout(commitSky, 350);
+      return false;
     }
   }
 
-  function setTimeMode(mode) {
+  function setTimeMode(mode, { duration = 4200 } = {}) {
     const night = mode === 'night';
     document.documentElement.dataset.timeMode = night ? 'night' : 'day';
-    if (lighting) lighting.setMode(night ? 'night' : 'day');
-    applySky(night);
+    if (lighting) lighting.setMode(night ? 'night' : 'day', { duration: duration / 1000 });
+    skyFade = { elapsed: 0, duration: Math.max(0.001, duration / 1000) };
+    skyAccum = 1;
+
     if (map.getLayer('satellite')) {
       map.setPaintProperty('satellite', 'raster-brightness-max', night ? 0.36 : 0.97);
       map.setPaintProperty('satellite', 'raster-brightness-min', night ? 0.0 : 0.01);
@@ -467,12 +467,53 @@ export function createWorld({ network, sceneObjects, onProgress = () => {} }) {
     if (map.getLayer('station-labels')) {
       map.setPaintProperty('station-labels', 'text-color', night ? '#e6f0ff' : '#f2f8fa');
     }
-    for (const id of ['night-streets-bloom', 'night-streets-glow', 'night-streets-core']) {
-      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', night ? 'visible' : 'none');
+
+    clearTimeout(nightStreetTimer);
+    if (night) {
+      // Fade the street-light group in from its current opacity. It is kept
+      // visible until the fade back to day has finished.
+      for (const id of NIGHT_STREETS) {
+        if (!map.getLayer(id)) continue;
+        map.setLayoutProperty(id, 'visibility', 'visible');
+        map.setPaintProperty(id, 'line-opacity', NIGHT_STREET_OPACITY[id]);
+      }
+    } else {
+      for (const id of NIGHT_STREETS) {
+        if (!map.getLayer(id)) continue;
+        map.setPaintProperty(id, 'line-opacity', 0);
+      }
+      nightStreetTimer = setTimeout(() => {
+        if (document.documentElement.dataset.timeMode === 'night') return;
+        for (const id of NIGHT_STREETS) {
+          if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+        }
+      }, duration + 150);
     }
-    if (night && map.getLayer('night-streets-glow')) {
-      map.setPaintProperty('night-streets-glow', 'line-opacity', 0.26);
-      map.setPaintProperty('night-streets-core', 'line-opacity', 0.46);
+
+    if (duration <= 0) {
+      commitSky();
+      skyFade = null;
+    } else if (!commitSky()) {
+      // The style may still be parsing on a cold boot; keep the fade timer so
+      // update() retries as soon as it is ready.
+    }
+  }
+
+  // Per-frame driver for the slower atmosphere terms. Paint and CSS transitions
+  // are handled by MapLibre and the stylesheet; this keeps the 3D light rig and
+  // the sky gradient in step with them.
+  function update(dt) {
+    if (lighting) lighting.update(dt);
+    if (!skyFade) return;
+    skyFade.elapsed += dt;
+    skyAccum += dt;
+    if (skyAccum > 0.16) {
+      skyAccum = 0;
+      commitSky();
+    }
+    if (skyFade.elapsed >= skyFade.duration) {
+      skyFade = null;
+      commitSky();
     }
   }
 
@@ -507,6 +548,7 @@ export function createWorld({ network, sceneObjects, onProgress = () => {} }) {
       return document.documentElement.dataset.timeMode || 'day';
     },
     setBuildingsVisible,
+    update,
     updateSun,
     setCamera,
     trigger,

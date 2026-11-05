@@ -33,7 +33,9 @@ city that switches on when the sun goes down.
 
 The whole scene relights: warm sodium street-light bloom across the city grid,
 lit train windows, illuminated canopies, headlights, and a sky that changes with
-the time mode.
+the time mode. The switch is one slow (~5 s) crossfade — the 3D light rig, the
+sky gradient, the satellite grade, the OSM street glow and the train lamps all
+move together, so the city never snaps from noon to midnight.
 
 ## Stations & interchanges
 
@@ -87,14 +89,20 @@ node tools/build-network.mjs     # writes assets/data/network.json
 | Drag | Orbit |
 | Wheel / pinch | Zoom |
 | Double-click | Recentre the chase camera |
-| `Space` | Pause / resume |
-| `1` `2` `3` | 0.5× / 1× / 4× speed |
+| `Space` | Pause / resume (stays locked to the timetable) |
+| Train pill | Pick any set in service — nearest first, with direction and live speed |
 | `N` | Day / night |
 | `L` | Cycle lines |
 | `B` | Toggle 3D buildings |
 | `R` | Recentre |
 | `H` | Hide HUD |
 | `I` | About |
+
+There is deliberately no speed control. The clock is IST wall-clock time,
+re-anchored to `Date.now()` every few seconds, so pausing and resuming always
+puts every set exactly where the published timetable says it is. Drift and
+dropped frames are absorbed by re-reading the wall clock rather than by
+accumulating a delta.
 
 ## Under the hood
 

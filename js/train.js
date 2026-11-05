@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from '../vendor/RoundedBoxGeometry.js';
-import { TRAIN, COLORS } from './config.js?v=20261105k';
-import { mergeByMaterial, mergeGeometries } from './geomutil.js?v=20261105k';
-import { makeGlowRadial } from './materials.js?v=20261105k';
+import { TRAIN, COLORS } from './config.js?v=20261105l';
+import { mergeByMaterial, mergeGeometries } from './geomutil.js?v=20261105l';
+import { makeGlowRadial } from './materials.js?v=20261105l';
 
 // One shared radial glow texture for every proxy lamp; each set only needs its
 // own sprite material to swap head/tail colours.

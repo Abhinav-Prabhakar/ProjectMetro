@@ -11,7 +11,7 @@
 // falls back to the unversioned copy with `ignoreSearch`.
 // ---------------------------------------------------------------------------
 
-const VERSION = 'hmlive-2026-11-05-4';
+const VERSION = 'hmlive-2026-11-05-5';
 const SHELL = `hmlive-shell-${VERSION}`;
 const RUNTIME = `hmlive-runtime-${VERSION}`;
 const DATA = `hmlive-data-${VERSION}`;

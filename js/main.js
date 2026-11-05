@@ -7,15 +7,15 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { MAP, TRAIN, SIM } from './config.js?v=20261105k';
-import { loadNetwork } from './network.js?v=20261105k';
-import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261105k';
-import { buildStations } from './station.js?v=20261105k';
-import { createTrain, createTrainProxy } from './train.js?v=20261105k';
-import { createWorld } from './world.js?v=20261105k';
-import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261105k';
-import { makeGlowRadial } from './materials.js?v=20261105k';
-import { mergeGeometries } from './geomutil.js?v=20261105k';
+import { MAP, TRAIN, SIM } from './config.js?v=20261105l';
+import { loadNetwork } from './network.js?v=20261105l';
+import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261105l';
+import { buildStations } from './station.js?v=20261105l';
+import { createTrain, createTrainProxy } from './train.js?v=20261105l';
+import { createWorld } from './world.js?v=20261105l';
+import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261105l';
+import { makeGlowRadial } from './materials.js?v=20261105l';
+import { mergeGeometries } from './geomutil.js?v=20261105l';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -1247,7 +1247,7 @@ function isStandalone() {
 let deferredInstall = null;
 
 function revealInstall() {
-  if (isStandalone()) {
+  if (isStandalone() || document.body.classList.contains('installed')) {
     document.body.classList.add('installed');
     return;
   }
@@ -1300,7 +1300,9 @@ function setupInstall() {
   });
 
   // iOS never fires beforeinstallprompt, but the Share-sheet path works.
-  if (PLATFORM === 'ios') setTimeout(revealInstall, 3200);
+  // Other browsers may omit the event too (desktop Safari, Firefox), so show
+  // the same quiet icon after a moment instead of leaving no way in.
+  setTimeout(revealInstall, PLATFORM === 'ios' ? 3200 : 5600);
 
   els.installBtn?.addEventListener('click', async () => {
     if (deferredInstall) {

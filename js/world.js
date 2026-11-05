@@ -10,8 +10,8 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { MAP } from './config.js?v=20261105k';
-import { createLighting, PRESETS } from './lighting.js?v=20261105k';
+import { MAP } from './config.js?v=20261105l';
+import { createLighting, PRESETS } from './lighting.js?v=20261105l';
 
 const ESRI_TILES =
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';

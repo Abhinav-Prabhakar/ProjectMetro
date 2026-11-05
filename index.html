@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Hyderabad Metro — Blue Line Live Tracker</title>
+<meta name="description" content="A real-time 3D tracker for the Hyderabad Metro Blue Line, running the actual Nagole–Raidurg alignment over satellite imagery." />
+<link rel="stylesheet" href="vendor/maplibre-gl.css" />
+<link rel="stylesheet" href="css/style.css" />
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+<script>
+  // Headless / background-tab testing aid: Chrome throttles requestAnimationFrame
+  // when the window is occluded. `?raf=timeout` lets the renderer run anyway.
+  if (new URLSearchParams(location.search).has('raf')) {
+    window.requestAnimationFrame = (cb) => window.setTimeout(() => cb(performance.now()), 16);
+    window.cancelAnimationFrame = (id) => window.clearTimeout(id);
+  }
+</script>
+<script src="vendor/maplibre-gl.js"></script>
+</head>
+<body>
+
+<div id="intro" class="intro">
+  <div class="intro-inner">
+    <div class="intro-mark">
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="32" r="29" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M18 23v20M46 23v20M18 33h28" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>
+        <path d="M31 12c9 1 17 6 20 13" fill="none" stroke="#0aa06a" stroke-width="2.2" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="intro-eyebrow">HYDERABAD METRO RAIL · CORRIDOR II</div>
+    <h1>Blue&nbsp;Line<span class="thin"> live</span></h1>
+    <div class="intro-sub">Nagole → Raidurg &nbsp;/&nbsp; 26.9 km &nbsp;/&nbsp; 23 stations &nbsp;/&nbsp; D–M–D</div>
+    <div class="intro-load"><span id="loadBar"></span></div>
+    <div class="intro-status" id="loadStatus">INITIALISING TRACKER</div>
+  </div>
+  <div class="intro-corner tl">17.42° N<br/>78.47° E</div>
+  <div class="intro-corner br">03 / BLUE LINE<br/>REAL ALIGNMENT</div>
+</div>
+
+<div id="stage" class="stage">
+  <div id="map" class="map"></div>
+  <div class="grade"></div>
+  <div class="vignette"></div>
+  <div class="grain"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="32" r="29" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <path d="M18 23v20M46 23v20M18 33h28" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+        <path d="M31 12c9 1 17 6 20 13" fill="none" stroke="#0aa06a" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <div class="brand-type">
+        <div class="brand-name">HYDERABAD METRO</div>
+        <div class="brand-sub">BLUE LINE <span>/</span> CORRIDOR II <span>/</span> LIVE TRACKER</div>
+      </div>
+    </div>
+
+    <div class="top-mid">
+      <span class="live-dot"></span>
+      <span>IN SERVICE</span>
+      <span class="sep"></span>
+      <span>03 BLUE LINE</span>
+      <span class="sep"></span>
+      <span id="clock" class="mono">17:42:06</span>
+    </div>
+
+    <div class="top-right">
+      <div class="weather">
+        <div class="weather-temp">31°</div>
+        <div class="weather-meta">HYDERABAD<br/><span>HAZE · SE 9 KM/H</span></div>
+      </div>
+      <button class="icon-btn" id="infoBtn" aria-label="About this tracker" title="About this tracker">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M12 10.5V17M12 7.4v.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <aside class="journey glass">
+    <div class="card-head">
+      <span class="card-kicker">NEXT STATION</span>
+      <span class="card-tag"><i></i>IN SERVICE</span>
+    </div>
+
+    <div class="next-row">
+      <div class="next-seq" id="nextSeq">02 / 23</div>
+      <div class="next-main">
+        <h2 id="nextName">Uppal</h2>
+        <div class="next-meta" id="nextMeta">TOWARDS RAIDURG</div>
+      </div>
+    </div>
+
+    <div class="eta-row">
+      <div class="eta-block">
+        <span class="eta-num" id="etaVal">01:24</span>
+        <span class="eta-lab">ARRIVAL ETA</span>
+      </div>
+      <div class="eta-block right">
+        <span class="eta-num" id="distVal">1.03</span>
+        <span class="eta-lab">KM TO GO</span>
+      </div>
+    </div>
+
+    <div class="route-progress">
+      <div class="progress"><div class="progress-fill" id="progressFill"></div><div class="progress-dot" id="progressDot"></div></div>
+      <div class="progress-labels"><span id="prevName">Nagole</span><span id="nextLabel">Uppal</span></div>
+    </div>
+
+    <div class="upcoming">
+      <div class="up-head"><span>UPCOMING</span><span>ETA</span></div>
+      <ul id="upcomingList"></ul>
+    </div>
+  </aside>
+
+  <section class="telemetry glass">
+    <div class="card-head">
+      <span class="card-kicker">TELEMETRY</span>
+      <span class="card-tag mono" id="runTag">RUN 03-02 · D–M–D</span>
+    </div>
+
+    <div class="speed-row">
+      <div class="speed-block">
+        <span class="speed-num" id="speedVal">0</span>
+        <span class="speed-unit">KM/H</span>
+      </div>
+      <div class="accel-block">
+        <span id="accelVal">+0.00</span>
+        <small>M/S² LONG.</small>
+      </div>
+    </div>
+
+    <div class="accel-track"><div class="accel-fill" id="accelFill"></div><div class="accel-zero"></div></div>
+
+    <div class="metrics">
+      <div class="metric"><span>LATERAL</span><b id="latVal">0.00<em>g</em></b></div>
+      <div class="metric"><span>CURVE</span><b id="curveVal">STRAIGHT</b></div>
+      <div class="metric"><span>GRADE</span><b id="gradeVal">0.0<em>%</em></b></div>
+      <div class="metric"><span>TRACTION</span><b id="tractionVal">0<em>%</em></b></div>
+      <div class="metric"><span>DOORS</span><b id="doorsVal">CLOSED</b></div>
+      <div class="metric"><span>LOAD</span><b id="loadVal">0<em>%</em></b></div>
+      <div class="metric"><span>DELAY</span><b id="delayVal">+00:00</b></div>
+      <div class="metric"><span>ODOMETER</span><b id="odoVal">0.00<em>km</em></b></div>
+    </div>
+
+    <div class="run-row">
+      <span id="runState">DWELL · DOORS OPEN</span>
+      <span class="run-speed">LIMIT 80 <em>KM/H</em></span>
+    </div>
+  </section>
+
+  <div class="hint" id="hint">DRAG&nbsp; ORBIT &nbsp;·&nbsp; SCROLL&nbsp; ZOOM &nbsp;·&nbsp; SPACE&nbsp; PAUSE &nbsp;·&nbsp; R&nbsp; RECENTER &nbsp;·&nbsp; H&nbsp; HIDE UI</div>
+
+  <nav class="dock glass">
+    <button class="dock-btn primary" id="playBtn" aria-label="Pause">
+      <svg class="ic-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>
+      <svg class="ic-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>
+    </button>
+    <div class="dock-group">
+      <button class="dock-btn rate" data-rate="0.5">.5</button>
+      <button class="dock-btn rate active" data-rate="1">1</button>
+      <button class="dock-btn rate" data-rate="2">2</button>
+    </div>
+    <div class="dock-div"></div>
+    <button class="dock-btn" id="resetCam" aria-label="Recenter camera" title="Recenter camera (R)">
+      <svg viewBox="0 0 24 24"><path d="M12 3.5l2.2 4.5 4.9.7-3.5 3.4.8 4.9-4.4-2.3-4.4 2.3.8-4.9L4.9 8.7l4.9-.7z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+    </button>
+  </nav>
+
+  <footer class="footer">
+    <span>BLUE LINE · NAGOLE ↔ RAIDURG · 26.9 KM · 23 STATIONS</span>
+    <span class="footer-mid">IMAGERY © ESRI, MAXAR, EARTHSTAR GEOGRAPHICS · DATA © OPENSTREETMAP · TILES OPENFREEMAP</span>
+    <span id="mapStatus">SATELLITE / 3D</span>
+  </footer>
+</div>
+
+<div class="notes glass" id="notes">
+  <button class="notes-close" id="notesClose" aria-label="Close">×</button>
+  <div class="card-kicker">HYDERABAD METRO / NOTES</div>
+  <h2>Blue Line<br/>live tracker</h2>
+  <p>A 3D reconstruction of the Nagole–Raidurg corridor on the real alignment, drawn over satellite imagery. The train follows the actual guideway, stops at all 23 stations and reverses at the termini.</p>
+  <dl>
+    <div><dt>Line</dt><dd>Blue · 03</dd></div>
+    <div><dt>Corridor</dt><dd>II · Nagole–Raidurg</dd></div>
+    <div><dt>Length</dt><dd>26.9 km</dd></div>
+    <div><dt>Stations</dt><dd>23</dd></div>
+    <div><dt>Formation</dt><dd>D–M–D · 3 cars</dd></div>
+    <div><dt>Doors</dt><dd>4 per side / car</dd></div>
+    <div><dt>Gauge</dt><dd>1,435 mm</dd></div>
+    <div><dt>Power</dt><dd>25 kV AC OHE</dd></div>
+  </dl>
+  <p class="notes-small">Map data © OpenStreetMap contributors. Satellite imagery © Esri, Maxar, Earthstar Geographics. 3D buildings from OpenFreeMap. The route geometry is OSM relation 8297688. This is an independent visual study, not an operational feed.</p>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

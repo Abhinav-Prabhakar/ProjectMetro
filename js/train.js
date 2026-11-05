@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from '../vendor/RoundedBoxGeometry.js';
-import { TRAIN, COLORS } from './config.js';
-import { mergeByMaterial, mergeGeometries } from './geomutil.js';
+import { TRAIN, COLORS } from './config.js?v=20261105c';
+import { mergeByMaterial, mergeGeometries } from './geomutil.js?v=20261105c';
 
 // ---------------------------------------------------------------------------
 // Procedural materials & textures
@@ -1728,6 +1728,37 @@ export function createTrainProxy({ color = '#0b5fae' } = {}) {
     parts.forEach((g) => g.dispose());
   }
 
+  // Lit saloon band. The proxy merges to a single vertex-coloured mesh, so it
+  // cannot vary its emissive per part; these thin additive quads sit just proud
+  // of each window bay and switch on at night, which is what makes the other
+  // sets read as trains in service rather than black boxes.
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 0xffc98a,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+    side: THREE.DoubleSide,
+  });
+  const glowParts = [];
+  for (let i = 0; i < 3; i++) {
+    const cz = (i - 1) * TRAIN.carSpacing;
+    for (const wz of TRAIN.windowCentres) {
+      for (const sgn of [-1, 1]) {
+        glowParts.push(
+          new THREE.PlaneGeometry(1.62, 0.58)
+            .rotateY((sgn * Math.PI) / 2)
+            .translate(sgn * (TRAIN.width / 2 + 0.035), 2.58, cz + wz)
+        );
+      }
+    }
+  }
+  const glow = new THREE.Mesh(mergeGeometries(glowParts), glowMat);
+  glow.name = 'proxy-saloon';
+  group.add(glow);
+  glowParts.forEach((g) => g.dispose());
+
   // head / tail lamps at each end
   const zf = TRAIN.carSpacing + TRAIN.shellLength / 2;
   const lampPair = (z, material) => {
@@ -1754,8 +1785,9 @@ export function createTrainProxy({ color = '#0b5fae' } = {}) {
     setDoors() {},
     setDestination() {},
     setNight(night) {
-      mat.emissive.setHex(night ? 0x120d06 : 0x000000);
-      mat.emissiveIntensity = night ? 0.55 : 0;
+      mat.emissive.setHex(night ? 0x141a22 : 0x000000);
+      mat.emissiveIntensity = night ? 0.85 : 0;
+      glowMat.opacity = night ? 0.9 : 0;
       headMat.color.setHex(night ? 0xfff5da : 0x161310);
       tailMat.color.setHex(night ? 0xff3020 : 0x2a0705);
     },

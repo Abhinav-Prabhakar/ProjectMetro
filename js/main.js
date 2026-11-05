@@ -7,15 +7,15 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { MAP, TRAIN, SIM } from './config.js';
-import { loadNetwork } from './network.js';
-import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js';
-import { buildStations } from './station.js';
-import { createTrain, createTrainProxy } from './train.js';
-import { createWorld } from './world.js?v=20261105b';
-import { Fleet, istParts, svcIndexFor } from './sim.js';
-import { makeGlowRadial } from './materials.js';
-import { mergeGeometries } from './geomutil.js';
+import { MAP, TRAIN, SIM } from './config.js?v=20261105c';
+import { loadNetwork } from './network.js?v=20261105c';
+import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261105c';
+import { buildStations } from './station.js?v=20261105c';
+import { createTrain, createTrainProxy } from './train.js?v=20261105c';
+import { createWorld } from './world.js?v=20261105c';
+import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261105c';
+import { makeGlowRadial } from './materials.js?v=20261105c';
+import { mergeGeometries } from './geomutil.js?v=20261105c';
 
 const $ = (id) => document.getElementById(id);
 const els = {

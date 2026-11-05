@@ -32,6 +32,13 @@ export function mergeGeometries(list) {
   const pos = new Float32Array(vCount * 3);
   const nor = new Float32Array(vCount * 3);
   const uv = new Float32Array(vCount * 2);
+  // Vertex colours are optional. When any input carries them the merged
+  // geometry must carry them too, otherwise a `vertexColors: true` material
+  // reads every vertex as black — which is exactly how the train proxies
+  // turned into moving silhouettes.
+  const hasColor = geoms.some((g) => g.attributes.color);
+  const col = hasColor ? new Float32Array(vCount * 3) : null;
+  if (hasColor) col.fill(1);
   const idx = new (vCount > 65535 ? Uint32Array : Uint16Array)(iCount);
   let vo = 0;
   let io = 0;
@@ -42,6 +49,7 @@ export function mergeGeometries(list) {
     pos.set(p, vo * 3);
     nor.set(n, vo * 3);
     uv.set(t, vo * 2);
+    if (col && g.attributes.color) col.set(g.attributes.color.array, vo * 3);
     const gi = g.index.array;
     for (let k = 0; k < gi.length; k++) idx[io + k] = gi[k] + vo;
     vo += g.attributes.position.count;
@@ -51,6 +59,7 @@ export function mergeGeometries(list) {
   out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  if (col) out.setAttribute('color', new THREE.BufferAttribute(col, 3));
   out.setIndex(new THREE.BufferAttribute(idx, 1));
   out.computeBoundingSphere();
   return out;

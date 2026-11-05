@@ -1,104 +1,128 @@
-# Hyderabad Metro — Blue Line Live Tracker
+# Metro Live
 
-A real-time 3D tracker for the Hyderabad Metro Blue Line (Corridor II). The train
-runs the actual Nagole ↔ Raidurg alignment on a procedural elevated viaduct,
-drawn over live satellite imagery with extruded buildings. The camera is locked
-to the set, follows the track, and can be orbited with the mouse.
+### A real-time 3D tracker for the entire Hyderabad Metro network.
 
-No API keys, tokens or paid map services are required.
+<p>
+<img alt="JavaScript" src="https://img.shields.io/badge/JavaScript-ES2022-f7df1e?style=flat-square&logo=javascript&logoColor=111">
+<img alt="Three.js" src="https://img.shields.io/badge/Three.js-r170-000000?style=flat-square&logo=three.js&logoColor=fff">
+<img alt="MapLibre" src="https://img.shields.io/badge/MapLibre_GL-4.7-396cb2?style=flat-square&logo=maplibre&logoColor=fff">
+<img alt="GTFS" src="https://img.shields.io/badge/GTFS-HMRL_2026-0a7d43?style=flat-square">
+<img alt="No API keys" src="https://img.shields.io/badge/API_keys-none-2ea44f?style=flat-square">
+<img alt="License" src="https://img.shields.io/badge/license-MIT-8b5cf6?style=flat-square">
+</p>
 
-![Blue Line tracker](assets/hyderabad-metro.webp)
+**Red · Green · Blue — 64.6 km, 57 stations, 162 train sets**, all driven by the
+official HMRL timetable. Every set in service is simulated; the camera rides one
+of them along a photo-real elevated viaduct, over live satellite imagery, with a
+city that switches on when the sun goes down.
+
+<br>
+
+![The network in motion](assets/readme/network.gif)
+
+<br>
+
+## Day / night
+
+| Golden hour | After dark |
+| --- | --- |
+| ![Day chase](assets/readme/hero-day.jpg) | ![Night chase](assets/readme/hero-night.jpg) |
+
+The whole scene relights: warm sodium street-light bloom across the city grid,
+lit train windows, illuminated canopies, headlights, and a sky that changes with
+the time mode.
+
+## Stations & interchanges
+
+| Station, night | Ameerpet interchange |
+| --- | --- |
+| ![Station at night](assets/readme/station-night.jpg) | ![Ameerpet at night](assets/readme/interchange-night.jpg) |
+
+Interchanges are modelled as one complex: the upper corridor's hall, the lower
+corridor's hall and the glazed concourse that joins them.
+
+![Ameerpet by day](assets/readme/interchange-day.jpg)
+
+## What's actually going on
+
+- **Real timetable.** The official HMRL GTFS feed is compiled into a network
+  graph — 2,820 trips, 61,236 stop times, 706 stops, 6 shapes. A service-day
+  clock runs on IST, so what you see matches the published schedule.
+- **Real physics.** Trains accelerate at `0.95 m/s²`, brake at `1.05 m/s²`, and
+  cruise at up to 80 km/h. Each segment's cruise speed is solved so the arrival
+  time matches GTFS exactly.
+- **Real turnbacks.** A set that reaches a terminus waits, reverses and moves
+  onto the opposite track before its next trip — consecutive trips in the feed
+  are linked into blocks, which is what a train set actually does all day.
+- **Only what you can see.** Every train is simulated, but only the sets near the
+  camera are drawn — the followed one in full detail, the rest as light proxies.
+- **Data-driven.** Nothing about Hyderabad is hard-coded in the renderer. Point
+  the compiler at another GTFS feed and the same engine draws that city.
 
 ## Run it
 
-The app is a static site. Any local web server works:
+Static site — no build step, no keys, no paid tiles.
 
 ```bash
 python3 -m http.server 4399
-# open http://localhost:4399/index.html
+open http://localhost:4399/index.html
 ```
 
-A server is required (the route data and ES modules are fetched over HTTP; the
-browser blocks `file://` module loading).
+A local server is required (ES modules and the compiled network are fetched over
+HTTP; `file://` will not work).
+
+Rebuild the network from a GTFS feed:
+
+```bash
+node tools/build-network.mjs     # writes assets/data/network.json
+```
 
 ## Controls
 
 | Input | Action |
 | --- | --- |
-| Drag | Orbit the camera (bearing / pitch) |
+| Drag | Orbit |
 | Wheel / pinch | Zoom |
 | Double-click | Recentre the chase camera |
-| `Space` | Pause / resume the simulation |
-| `1` `2` `3` | 0.5× / 1× / 2× simulation rate |
-| `R` | Recentre camera |
-| `H` | Hide / show the HUD |
+| `Space` | Pause / resume |
+| `1` `2` `3` | 0.5× / 1× / 4× speed |
+| `N` | Day / night |
+| `L` | Cycle lines |
 | `B` | Toggle 3D buildings |
-| `I` | About panel |
+| `R` | Recentre |
+| `H` | Hide HUD |
+| `I` | About |
 
-## What is simulated
-
-- 23 stations, 27.2 km, real station order and spacing from OpenStreetMap.
-- Acceleration, line-speed cruise, braking and a stop at every station.
-- Door opening / dwell / closing, with a longer layover at the termini.
-- Direction reversal at Nagole and Raidurg; destination blinds and head / tail
-  lights switch ends with the direction.
-- Live tracker HUD: next station, arrival ETA, distance to go, segment progress,
-  upcoming stations, speed, longitudinal acceleration, lateral g, curve radius,
-  grade, traction, door state, load, delay and odometer.
-- 3-car D–M–D set with four doors per side per car, glazed panels between the
-  doors, identical cab ends, brushed-steel body, blue cantrail, blue cab with the
-  HMR red / green / blue stripe motif, roof AC units and a single-arm pantograph.
-- Elevated guideway with a centre walkway, cable troughs, parapet panel joints,
-  catenary masts and contact wires; platforms with granite paving, tactile
-  strips, ribbed canopies, blue fascias and hanging name boards.
-
-## Map stack (all free, keyless)
-
-- **MapLibre GL JS 4.7.1** — map renderer, vendored in `vendor/`.
-- **Esri World Imagery** — satellite raster tiles
-  (`server.arcgisonline.com/.../World_Imagery`). Attribution is shown in the
-  footer.
-- **OpenFreeMap** — vector tiles (`tiles.openfreemap.org/planet`) for the
-  extruded 3D buildings. Attribution shown in the footer.
-- **OpenStreetMap** — Blue Line relation `8297688`, saved as
-  `assets/data/blue-line.json` with 513 nodes and 23 stations.
-
-The train and viaduct are authored in a local metric frame and projected into
-MapLibre's Mercator space per frame with `transform.customLayerMatrix()`, so the
-set stays glued to the real corridor at street zoom.
-
-## Structure
+## Under the hood
 
 ```
-index.html              tracker UI, intro, attribution
-css/style.css           glass HUD, journey card, telemetry, responsive layout
-js/config.js            line, map, viaduct, train and simulation constants
-js/geo.js               OSM route loading, Mercator projection, resampling
-js/viaduct.js           deck, parapets, rails, piers, catenary, stations
-js/train.js             procedural 3-car set, doors, cabs, destination blinds
-js/world.js             MapLibre style, custom Three.js layer, sun / sky
-js/main.js              simulation, placement, chase camera, HUD, controls
-assets/data/blue-line.json   route geometry + station chainage
-vendor/                 Three.js r170, RoundedBoxGeometry, MapLibre GL JS
+tools/build-network.mjs   GTFS  →  assets/data/network.json
+js/network.js             projection, resampling, chainage, interchange levels
+js/sim.js                 service day, trip solver, blocks, turnbacks, fleet
+js/infrastructure.js      U-girder viaduct, track slabs, piers, OCS masts
+js/station.js             canopy halls, platforms, signage, night lighting
+js/train.js               procedural 3-car set, livery, doors, cabs, lighting
+js/world.js               MapLibre ⇄ Three bridge, sky, night city layers
+js/main.js                camera, placement, culling, HUD, controls
 ```
 
-## Debug URL parameters
+MapLibre renders the satellite raster and the OSM street graph; the metro lives
+in a Three.js custom layer sharing MapLibre's WebGL context. Geometry is authored
+in a local metric frame (x east, y up, z north) and the Mercator transform is
+folded into the projection matrix, so a single draw call places the whole network
+anywhere on the planet without losing float precision.
 
-Useful while tuning (all optional):
+## Data & credits
 
-- `?station=Habsiguda` — start dwelling at a named or zero-based station.
-- `?km=17.05` — start mid-section at a chainage in kilometres.
-- `?hold=1` — hold at the selected station with the doors open (UI test).
-- `?zoom=20.15&pitch=50&look=16` — override the chase camera.
-- `?raf=1` — run the animation loop on a timer instead of `requestAnimationFrame`
-  (for headless / background-tab capture).
+- Timetable and station data: **Hyderabad Metro Rail Ltd** via
+  [Open Data Telangana](https://data.telangana.gov.in/) (GTFS, 2026).
+- Imagery: **Esri World Imagery** via the public ArcGIS tile service.
+- Streets and buildings: **OpenStreetMap** contributors, vector tiles by
+  **OpenFreeMap**.
+- Rendering: **Three.js**, **MapLibre GL JS**.
 
-## Notes
+Not affiliated with HMRL. Built as a visualisation of public timetable data.
 
-- The route and station chainage come from OpenStreetMap; the guideway,
-  stations and train are an independent visual reconstruction, not an
-  operational feed.
-- The three.js scene is rendered into MapLibre's WebGL context, so there is no
-  second canvas or DOM overlay to keep in sync.
-- Satellite imagery © Esri, Maxar, Earthstar Geographics. Map data ©
-  OpenStreetMap contributors. Vector tiles © OpenFreeMap.
+## License
+
+MIT

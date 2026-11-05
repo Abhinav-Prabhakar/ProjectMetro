@@ -1,25 +1,27 @@
 // ---------------------------------------------------------------------------
-// Hyderabad Metro — Blue Line live tracker
+// Hyderabad Metro — real-time network tracker
 //
-// The train runs the real Nagole → Raidurg alignment from OpenStreetMap. It
-// accelerates, brakes, stops at every station, opens its doors, dwells, and
-// reverses at the termini. The camera stays locked to the set and can be
-// orbited with the mouse while the chase heading keeps following the track.
+// Every set in the official GTFS timetable is alive. The camera rides one of
+// them; the others are drawn as light proxies when they come near. The clock
+// is IST wall-clock time, so what you see matches the published timetable.
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { MAP, TRAIN, VIADUCT, SIM } from './config.js';
-import { loadRoute } from './geo.js';
-import { buildViaduct } from './viaduct.js';
-import { createTrain } from './train.js';
+import { MAP, TRAIN, SIM } from './config.js';
+import { loadNetwork } from './network.js';
+import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js';
+import { buildStations } from './station.js';
+import { createTrain, createTrainProxy } from './train.js';
 import { createWorld } from './world.js';
+import { Fleet, istParts, svcIndexFor } from './sim.js';
+import { makeGlowRadial } from './materials.js';
+import { mergeGeometries } from './geomutil.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
   intro: $('intro'),
   loadBar: $('loadBar'),
   loadStatus: $('loadStatus'),
-  map: $('map'),
   clock: $('clock'),
   nextName: $('nextName'),
   nextMeta: $('nextMeta'),
@@ -50,13 +52,16 @@ const els = {
   infoBtn: $('infoBtn'),
   notes: $('notes'),
   notesClose: $('notesClose'),
-  formations: $('formations'),
+  lineSwitch: $('lineSwitch'),
+  trainPicker: $('trainPicker'),
+  nightBtn: $('nightBtn'),
+  serviceLabel: $('serviceLabel'),
+  trainCount: $('trainCount'),
+  stats: $('stats'),
 };
-const clamp = THREE.MathUtils.clamp;
-const TRACK_LATERAL = -VIADUCT.trackOffset; // left-hand running, west track
 
+const clamp = THREE.MathUtils.clamp;
 const UP = new THREE.Vector3(0, 1, 0);
-const Z_AXIS = new THREE.Vector3(0, 0, 1);
 
 const scratch = {
   pA: new THREE.Vector3(),
@@ -70,46 +75,41 @@ const scratch = {
   t1: new THREE.Vector3(),
   t2: new THREE.Vector3(),
   point: new THREE.Vector3(),
+  focus: new THREE.Vector3(),
 };
-
-// ---------------------------------------------------------------------------
-// simulation state
-// ---------------------------------------------------------------------------
 
 const state = {
-  s: 0,
-  v: 0,
-  accel: 0,
-  dir: 1,
-  phase: 'dwell',
-  index: 0,
-  nextIndex: 1,
-  timer: 0,
-  doors: 0,
-  doorTarget: 0,
-  roll: 0,
-  odo: 0,
-  delay: 0,
+  epoch: Date.now() / 1000,
   playing: true,
   rate: 1,
+  lineId: 'BLUE',
+  followId: null,
+  night: new URLSearchParams(location.search).get('night') === '1',
+  doors: 0,
+  vehicle: null,
+  hasUserSelected: false,
 };
 
-let route = null;
-let viaduct = null;
-let train = null;
+let network = null;
+let fleet = null;
 let world = null;
 let ready = false;
 
+const lineRuntime = new Map(); // lineId -> { route, guideway, stations, detailed, proxies, proxyPool }
+const proxyPool = [];
 const cam = {
   bearing: 0,
   bearingOffset: 0,
-  pitch: MAP.pitch,
-  pitchTarget: MAP.pitch,
-  zoom: MAP.initialZoom,
-  zoomTarget: MAP.initialZoom,
-  lookAhead: MAP.lookAhead,
+  pitch: 53,
+  pitchTarget: 46,
+  zoom: 18.45,
+  zoomTarget: 18.45,
+  lookAhead: 22,
   lastInteract: performance.now(),
   init: false,
+  // Debug / cinematic override. When set, the frame loop leaves the map camera
+  // exactly where the caller put it and only keeps the culling focus in sync.
+  free: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -123,58 +123,214 @@ function setProgress(p, message) {
   if (els.loadStatus && message) els.loadStatus.textContent = message;
 }
 
+
+// ---------------------------------------------------------------------------
+// Interchange concourse
+//
+// Two corridors meet at Ameerpet and MGBS: one elevated over the other, with
+// their platforms a few dozen metres apart. The real stations are a single
+// complex joined by a concourse, so build that link here once every line has
+// been placed, rather than faking it inside either station.
+// ---------------------------------------------------------------------------
+
+function addInterchangeLinks(parent, lineRuntime) {
+  const byName = new Map();
+  for (const lr of lineRuntime.values()) {
+    for (const item of lr.stations.items) {
+      const st = item.userData.station;
+      if (!st || !st.interchange) continue;
+      if (!item.children.length) continue; // duplicate placeholder
+      const p = new THREE.Vector3().setFromMatrixPosition(item.matrixWorld);
+      if (!byName.has(st.name)) byName.set(st.name, []);
+      byName.get(st.name).push({ st, p, line: lr.route });
+    }
+  }
+
+  const glass = new THREE.MeshPhysicalMaterial({
+    color: 0xbfe0ea,
+    roughness: 0.1,
+    metalness: 0.05,
+    transparent: true,
+    opacity: 0.3,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const slab = new THREE.MeshStandardMaterial({ color: 0xbfc3bd, roughness: 0.85, metalness: 0.04 });
+  const lamp = new THREE.MeshBasicMaterial({
+    color: 0xffe4b8,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  glass.userData.castShadow = false;
+  slab.userData.receiveShadow = true;
+
+  const group = new THREE.Group();
+  group.name = 'interchange-links';
+  const glowGeoms = [];
+
+  for (const [, list] of byName) {
+    if (list.length < 2) continue;
+    list.sort((a, b) => a.p.y - b.p.y);
+    const low = list[0];
+    const high = list[list.length - 1];
+    const dx = high.p.x - low.p.x;
+    const dz = high.p.z - low.p.z;
+    const span = Math.hypot(dx, dz);
+    if (span < 4 || span > 90) continue;
+    const yaw = Math.atan2(dx, dz);
+    const mx = (low.p.x + high.p.x) / 2;
+    const mz = (low.p.z + high.p.z) / 2;
+    const floor = low.p.y + 1.0;
+
+    // A glazed gallery bridging the two platforms at the lower level.
+    const gallery = new THREE.Mesh(new THREE.BoxGeometry(11, 3.4, span + 6), glass);
+    gallery.position.set(mx, floor + 1.7, mz);
+    gallery.rotation.y = yaw;
+    group.add(gallery);
+
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(11.6, 0.34, span + 7), slab);
+    deck.position.set(mx, floor - 0.1, mz);
+    deck.rotation.y = yaw;
+    group.add(deck);
+
+    for (const zs of [-1, 1]) {
+      const g = new THREE.BoxGeometry(9.4, 0.08, 0.16);
+      g.translate(0, floor + 3.3, zs * (span / 2 + 1.2));
+      g.rotateY(yaw);
+      g.translate(mx, 0, mz);
+      glowGeoms.push(g);
+    }
+
+    // Stair / lift core climbing to the upper corridor.
+    if (high.p.y - low.p.y > 2) {
+      const h = high.p.y - low.p.y;
+      const core = new THREE.Mesh(new THREE.BoxGeometry(7.4, h + 4.6, 7.4), glass);
+      core.position.set(high.p.x, low.p.y + (h + 4.6) / 2 + 0.6, high.p.z);
+      core.rotation.y = yaw;
+      group.add(core);
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(7.9, 0.3, 7.9), slab);
+      cap.position.set(high.p.x, low.p.y + h + 5.1, high.p.z);
+      cap.rotation.y = yaw;
+      group.add(cap);
+      const ring = new THREE.BoxGeometry(7.2, 0.08, 0.16);
+      ring.translate(0, low.p.y + h + 4.7, 3.8);
+      ring.rotateY(yaw);
+      ring.translate(high.p.x, 0, high.p.z);
+      glowGeoms.push(ring);
+    }
+  }
+
+  if (glowGeoms.length) {
+    const lampMesh = new THREE.Mesh(mergeGeometries(glowGeoms), lamp);
+    lampMesh.name = 'interchange-lamp';
+    group.add(lampMesh);
+    group.userData.lamp = lamp;
+    glowGeoms.forEach((g) => g.dispose());
+  }
+  if (group.children.length) parent.push(group);
+  return { group, lamp };
+}
+
 async function boot() {
   try {
-    setProgress(0.04, 'READING BLUE LINE GEOMETRY');
-    route = await loadRoute();
+    document.documentElement.dataset.timeMode = state.night ? 'night' : 'day';
+    if (new URLSearchParams(location.search).has('stats')) document.body.classList.add('show-stats');
+    document.body.classList.add('no-buildings');
+    setProgress(0.04, 'READING HMRL TIMETABLE');
+    network = await loadNetwork((p) => setProgress(p, 'READING HMRL TIMETABLE'));
 
-    setProgress(0.28, 'RAISING ELEVATED GUIDEWAY');
-    viaduct = buildViaduct(route, { anisotropy: 8 });
+    const sceneObjects = [];
+    const glowPositions = [];
+    const seenStations = new Set();
 
-    setProgress(0.55, 'MODELLING 3-CAR SET');
-    train = createTrain({ anisotropy: 8 });
+    for (let li = 0; li < network.lines.length; li++) {
+      const route = network.lines[li];
+      setProgress(0.16 + li * 0.06, `RAISING ${route.name.toUpperCase()}`);
+      const guideway = buildGuideway(route, { anisotropy: 8 });
+      sceneObjects.push(guideway);
 
-    setProgress(0.64, 'STREAMING SATELLITE IMAGERY');
+      setProgress(0.3 + li * 0.06, `BUILDING ${route.stations.length} STATIONS`);
+      const stations = buildStations(route, { anisotropy: 8, seen: seenStations });
+      sceneObjects.push(stations.group);
+
+      // a warm point of light at each canopy, drawn as one additive Points cloud
+      for (const st of route.stations) {
+        if (!seenStations.has(st.name)) continue;
+        glowPositions.push(st.x, DECK_TOP + 6.2, st.z);
+        glowPositions.push(st.x + 4, DECK_TOP + 4.2, st.z);
+      }
+
+      setProgress(0.46 + li * 0.05, 'MODELLING 3-CAR SETS');
+      const detailed = createTrain({ anisotropy: 8, color: route.color });
+      detailed.group.visible = false;
+      sceneObjects.push(detailed.group);
+
+      const proxies = [];
+      for (let i = 0; i < 5; i++) {
+        const p = createTrainProxy({ color: route.color });
+        p.group.visible = false;
+        sceneObjects.push(p.group);
+        proxies.push(p);
+      }
+
+      lineRuntime.set(route.id, { route, guideway, stations, detailed, proxies });
+    }
+
+    state.interchangeLinks = addInterchangeLinks(sceneObjects, lineRuntime);
+
+    // station light cloud
+    {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(glowPositions, 3));
+      geo.computeBoundingSphere();
+      const tex = makeGlowRadial(128);
+      const mat = new THREE.PointsMaterial({
+        map: tex,
+        size: 11,
+        sizeAttenuation: true,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        color: 0xffe3b0,
+      });
+      const points = new THREE.Points(geo, mat);
+      points.renderOrder = 4;
+      points.frustumCulled = false;
+      sceneObjects.push(points);
+      state.stationGlow = points;
+    }
+
+    fleet = new Fleet(network);
+
+    setProgress(0.62, 'STREAMING SATELLITE IMAGERY');
     world = createWorld({
-      route,
-      viaduct,
-      train,
+      network,
+      sceneObjects,
       onProgress: (p) => {
         if (p > 0.9) setProgress(0.93, 'FINALISING 3D LAYER');
         else setProgress(p, 'STREAMING SATELLITE IMAGERY');
       },
     });
-
     await world.ready;
-    setProgress(0.97, 'ALIGNING TRAIN TO CORRIDOR');
+    setProgress(0.97, 'ALIGNING TO THE CORRIDOR');
 
-    startRun();
+    // default follow: the closest set on the blue line to the middle of the map
+    const midStation = network.byId.get('BLUE').stations[Math.floor(network.byId.get('BLUE').stations.length / 2)];
+    const focus = network.byId.get('BLUE').getPoint(midStation.s);
+    selectNearestTrain('BLUE', focus, true);
 
-    const params = new URLSearchParams(window.location.search);
-    if (params.has('zoom')) {
-      cam.zoom = cam.zoomTarget = clamp(parseFloat(params.get('zoom')) || MAP.initialZoom, 16.8, 21.3);
-    }
-    if (params.has('pitch')) {
-      cam.pitch = cam.pitchTarget = clamp(parseFloat(params.get('pitch')) || MAP.pitch, 24, MAP.maxPitch);
-    }
-    if (params.has('look')) {
-      cam.lookAhead = clamp(parseFloat(params.get('look')) || MAP.lookAhead, 8, 90);
-    }
-    if (params.has('face')) {
-      // debug: look at the leading cab from ahead
-      MAP.chaseBearing += 180;
-    }
-
-    placeCars(0);
-    updateCamera(0.016, true);
-    world.updateSun(scratch.mid);
-    world.trigger();
+    applyNight();
+    placeAll();
 
     ready = true;
     setProgress(1, 'SYSTEMS ONLINE');
-    setStatus('SATELLITE / 3D · LIVE');
+    if (els.mapStatus) els.mapStatus.textContent = 'SATELLITE / 3D · LIVE';
 
-    setTimeout(() => els.intro.classList.add('done'), 500);
+    setTimeout(() => els.intro.classList.add('done'), 450);
     requestAnimationFrame(frame);
   } catch (err) {
     console.error(err);
@@ -185,164 +341,71 @@ async function boot() {
   }
 }
 
-function startRun() {
-  const stations = route.stations;
-  const params = new URLSearchParams(window.location.search);
-  let startIndex = 0;
-  if (params.has('station')) {
-    const raw = params.get('station');
-    const byName = stations.findIndex(
-      (st) => st.name.toLowerCase().replace(/[^a-z0-9]+/g, '') === raw.toLowerCase().replace(/[^a-z0-9]+/g, '')
-    );
-    startIndex = byName >= 0 ? byName : clamp(parseInt(raw, 10) || 0, 0, stations.length - 1);
-  }
+// ---------------------------------------------------------------------------
+// train selection
+// ---------------------------------------------------------------------------
 
-  state.index = startIndex;
-  state.s = stations[startIndex].s;
-  state.nextIndex = startIndex + 1;
-  state.dir = startIndex === stations.length - 1 ? -1 : 1;
-  state.phase = 'dwell';
-  state.timer = startIndex === 0 || startIndex === stations.length - 1 ? SIM.terminusDwell : dwellAt(startIndex);
-  state.v = 0;
-  state.accel = 0;
+function activeVehicles(near = null, radius = 5000) {
+  const svc = svcIndexFor(network, state.epoch);
+  const t = istParts(state.epoch).sec;
+  return fleet.snapshot(t, svc, { near, radius });
+}
+
+function vehicleLabel(v) {
+  const line = v.block.line;
+  const dirName = v.pattern && v.pattern.dir > 0 ? line.to : line.from;
+  const speed = v.phase === 'run' ? `${Math.round(v.v * 3.6)} km/h` : v.kind === 'turnback' ? 'turning back' : 'at platform';
+  return `${line.id} · ${v.block.id.split(':')[1]} · to ${dirName} · ${speed}`;
+}
+
+function selectNearestTrain(lineId, point, initial = false) {
+  const line = network.byId.get(lineId);
+  const svc = svcIndexFor(network, state.epoch);
+  const t = istParts(state.epoch).sec;
+  let best = null;
+  for (const block of fleet.blocks) {
+    if (block.line.id !== lineId) continue;
+    const st = fleet.stateAt(block, t, svc);
+    if (!st) continue;
+    const p = line.getPoint(st.s);
+    const d = (p.x - point.x) ** 2 + (p.z - point.z) ** 2;
+    if (!best || d < best.d) best = { block, st, d };
+  }
+  if (!best) return false;
+  state.lineId = lineId;
+  state.followId = best.block.id;
+  state.vehicle = best.st;
   state.doors = 0;
-  state.doorTarget = 1;
-  state.odo = 0;
-  state.delay = 0;
-  state.roll = 0;
+  if (!initial) state.hasUserSelected = true;
+  cam.init = false;
+  syncLineUI();
+  return true;
+}
 
-  if (state.dir < 0) state.nextIndex = startIndex - 1;
-  train.setMode(state.dir);
-  train.setDestination(state.dir > 0 ? 'RAIDURG' : 'NAGOLE');
-  train.setDoors(0);
-
-  if (params.has('hold')) {
-    // testing aid: hold at the selected station with the doors open
-    state.phase = 'dwell';
-    state.timer = 1e6;
-    state.doorTarget = 1;
-  }
-
-  if (params.has('km')) {
-    // free-run debug start: place the train mid-section and roll out
-    const km = parseFloat(params.get('km'));
-    if (Number.isFinite(km)) {
-      const s = clamp(km * 1000, stations[0].s + 40, stations[stations.length - 1].s - 40);
-      let i = 0;
-      for (let k = 0; k < stations.length; k++) if (stations[k].s <= s) i = k;
-      state.s = s;
-      state.index = i;
-      state.dir = 1;
-      state.nextIndex = Math.min(i + 1, stations.length - 1);
-      state.phase = 'run';
-      state.v = SIM.cruise * 0.72;
-      state.timer = 0;
-      state.doorTarget = 0;
-      state.nextIndex = i + 1;
-      train.setMode(1);
-      train.setDestination('RAIDURG');
-    }
-  }
+function selectVehicle(blockId) {
+  const block = fleet.blocks.find((b) => b.id === blockId);
+  if (!block) return;
+  state.lineId = block.line.id;
+  state.followId = blockId;
+  state.hasUserSelected = true;
+  cam.init = false;
+  syncLineUI();
 }
 
 // ---------------------------------------------------------------------------
-// station logic
+// placement
 // ---------------------------------------------------------------------------
 
-function dwellAt(index) {
-  const terminus = index === 0 || index === route.stations.length - 1;
-  if (terminus) return SIM.terminusDwell;
-  const jitter = ((((index * 37) % 7) - 3) * 0.85);
-  return Math.max(14, SIM.doorDwell + jitter);
-}
-
-function arriveAtStation(index) {
-  const stations = route.stations;
-  state.phase = 'dwell';
-  state.index = index;
-  state.s = stations[index].s;
-  state.v = 0;
-  state.accel = 0;
-  state.doorTarget = 1;
-
-  const terminus = index === 0 || index === stations.length - 1;
-  if (index === 0) state.dir = 1;
-  else if (index === stations.length - 1) state.dir = -1;
-  state.nextIndex = index + state.dir;
-
-  state.timer = dwellAt(index);
-  state.delay += state.timer - (terminus ? SIM.terminusDwell : SIM.doorDwell);
-
-  train.setMode(state.dir);
-  train.setDestination(state.dir > 0 ? 'RAIDURG' : 'NAGOLE');
-}
-
-function departStation() {
-  state.phase = 'run';
-  state.v = 0;
-  state.accel = 0;
-  state.timer = 0;
-  state.doorTarget = 0;
-  state.index = state.nextIndex - state.dir;
-  state.nextIndex = state.index + state.dir;
-}
-
-function simulate(dt) {
-  const stations = route.stations;
-  state.doorTarget = state.phase === 'dwell' && state.timer > SIM.doorTime ? 1 : 0;
-
-  if (state.phase === 'dwell') {
-    state.timer -= dt;
-    if (state.timer <= 0) departStation();
-  } else {
-    const target = stations[state.nextIndex];
-    if (!target) {
-      state.phase = 'dwell';
-      state.timer = 2;
-    } else {
-      const d = (target.s - state.s) * state.dir;
-      if (d <= 0.35 || (d < 1.2 && state.v < 0.65)) {
-        arriveAtStation(state.nextIndex);
-      } else {
-        const stopDist = (state.v * state.v) / (2 * SIM.maxBrake);
-        let desired = SIM.cruise;
-        if (d < stopDist + 34) {
-          desired = Math.min(desired, Math.sqrt(2 * SIM.maxBrake * Math.max(0, d - 0.4)));
-        }
-        const aTarget = clamp((desired - state.v) * 1.55, -SIM.maxBrake, SIM.maxAccel);
-        state.accel += (aTarget - state.accel) * Math.min(1, dt * 5.5);
-        state.v = Math.max(0, state.v + state.accel * dt);
-
-        const step = state.v * dt;
-        if (step >= d) {
-          arriveAtStation(state.nextIndex);
-        } else {
-          state.s += state.dir * step;
-          state.roll += state.dir * step;
-          state.odo += step;
-        }
-      }
-    }
-  }
-
-  // doors ease open / closed
-  state.doors += (state.doorTarget - state.doors) * Math.min(1, dt * 4.2);
-  if (state.doors < 0.002) state.doors = 0;
-  if (state.doors > 0.998) state.doors = 1;
-  train.setDoors(state.doors);
-}
-
-// ---------------------------------------------------------------------------
-// train placement
-// ---------------------------------------------------------------------------
-
-function placeCars(dt = 0) {
-  const y = VIADUCT.railTop;
-  for (let i = 0; i < train.cars.length; i++) {
-    const car = train.cars[i];
-    const sCenter = state.s + (i - 1) * TRAIN.carSpacing;
-    route.getPoint(sCenter - TRAIN.bogieHalfSpacing, scratch.pA);
-    route.getPoint(sCenter + TRAIN.bogieHalfSpacing, scratch.pB);
+function placeCarsFor(obj, route, vehicle) {
+  const lateral = vehicle.lateral ?? -TRACK_OFFSET * vehicle.dir;
+  const dir = vehicle.dir;
+  for (let i = 0; i < obj.cars.length; i++) {
+    const car = obj.cars[i];
+    const carS = vehicle.s + (i - 1) * TRAIN.carSpacing;
+    route.getPoint(carS - TRAIN.bogieHalfSpacing, scratch.pA);
+    route.getPoint(carS + TRAIN.bogieHalfSpacing, scratch.pB);
+    scratch.pA.y = route.yAt(carS - TRAIN.bogieHalfSpacing);
+    scratch.pB.y = route.yAt(carS + TRAIN.bogieHalfSpacing);
 
     scratch.mid.copy(scratch.pA).add(scratch.pB).multiplyScalar(0.5);
     scratch.fwd.subVectors(scratch.pB, scratch.pA).normalize();
@@ -350,26 +413,109 @@ function placeCars(dt = 0) {
     scratch.up.crossVectors(scratch.fwd, scratch.right).normalize();
     scratch.basis.makeBasis(scratch.right, scratch.up, scratch.fwd);
 
-    // ride the west track, not the centreline between the two tracks
-    scratch.mid.addScaledVector(scratch.right, TRACK_LATERAL);
+    scratch.mid.addScaledVector(scratch.right, lateral);
+    const node = car.group || car;
+    node.quaternion.setFromRotationMatrix(scratch.basis);
+    node.position.set(scratch.mid.x, RAIL_TOP + scratch.mid.y, scratch.mid.z);
 
-    car.group.quaternion.setFromRotationMatrix(scratch.basis);
-    car.group.position.set(scratch.mid.x, y, scratch.mid.z);
+    // gentle body roll into curves
+    route.getTangent(carS - 3, scratch.t1);
+    route.getTangent(carS + 3, scratch.t2);
+    const kSigned = scratch.t2.sub(scratch.t1).dot(scratch.right) / 6;
+    const roll = Math.atan((vehicle.v * vehicle.v * Math.abs(kSigned)) / 9.81) * 0.45;
+    scratch.q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -roll * Math.sign(kSigned || 1) * dir);
+    node.quaternion.multiply(scratch.q);
+  }
+}
 
-    // body roll from lateral acceleration (air springs, no cant)
-    route.getTangent(sCenter - 2.5, scratch.t1);
-    route.getTangent(sCenter + 2.5, scratch.t2);
-    const kSigned = scratch.t2.sub(scratch.t1).dot(scratch.right) / 5;
-    const roll = Math.atan((state.v * state.v * Math.abs(kSigned)) / 9.81) * 0.5 * Math.sign(kSigned || 1);
-    scratch.q.setFromAxisAngle(Z_AXIS, -roll);
-    car.group.quaternion.multiply(scratch.q);
+let proxyCursor = 0;
+function placeAll() {
+  if (!ready && !network) return;
+  const svc = svcIndexFor(network, state.epoch);
+  const t = istParts(state.epoch).sec;
 
-    const spin = -state.roll / TRAIN.wheelRadius;
-    for (const w of car.wheels) w.rotation.x = spin;
+  // pick the followed vehicle (may have rolled into its next trip)
+  if (state.followId) {
+    const block = fleet.blocks.find((b) => b.id === state.followId);
+    if (block) {
+      const st = fleet.stateAt(block, t, svc);
+      if (st) state.vehicle = st;
+      else {
+        // set has finished for the day — hop onto the nearest active one
+        selectNearestTrain(state.lineId, scratch.focus, true);
+      }
+    }
   }
 
-  // centre of the consist, at rail height, for sun + camera reference
-  scratch.mid.copy(train.cars[1].group.position);
+  const focus = measureFocus();
+  const visible = activeVehicles(focus, 2600).filter((v) => v.block.id !== state.followId);
+  visible.sort((a, b) => a.distance - b.distance);
+
+  // hide all proxies, then hand them out
+  for (const lr of lineRuntime.values()) {
+    for (const p of lr.proxies) p.group.visible = false;
+  }
+  const used = new Map();
+  const maxProxies = 8;
+  let n = 0;
+  for (const v of visible) {
+    if (n >= maxProxies) break;
+    const lr = lineRuntime.get(v.block.line.id);
+    if (!lr) continue;
+    const k = used.get(v.block.line.id) || 0;
+    if (k >= lr.proxies.length) continue;
+    used.set(v.block.line.id, k + 1);
+    const proxy = lr.proxies[k];
+    proxy.group.visible = true;
+    proxy.setMode(v.dir);
+    placeCarsFor(proxy, lr.route, v);
+    n++;
+  }
+  state.renderedTrains = n + 1;
+
+  // the followed set gets the detailed model
+  for (const [id, lr] of lineRuntime) {
+    lr.detailed.group.visible = id === state.lineId && !!state.vehicle;
+  }
+  if (state.vehicle) {
+    const lr = lineRuntime.get(state.lineId);
+    if (lr) {
+      placeCarsFor(lr.detailed, lr.route, state.vehicle);
+      lr.detailed.setDoors(state.vehicle.doors ?? 0);
+    }
+  }
+
+  // station culling: only the two or three around the camera are built
+  for (const lr of lineRuntime.values()) {
+    for (const item of lr.stations.items) {
+      const st = item.userData.station;
+      const dx = st.x - focus.x;
+      const dz = st.z - focus.z;
+      item.visible = dx * dx + dz * dz < 820 * 820;
+    }
+  }
+}
+
+function measureFocus() {
+  if (cam.free) {
+    const c = cam.free.center;
+    const p = network.frame.project(c[1], c[0]);
+    p.y = RAIL_TOP;
+    return scratch.focus.copy(p);
+  }
+  const v = state.vehicle;
+  if (!v) {
+    const line = network.byId.get(state.lineId);
+    return line.getPoint(line.length / 2, scratch.focus);
+  }
+  const line = network.byId.get(state.lineId);
+  const lateral = v.lateral ?? -TRACK_OFFSET * v.dir;
+  const p = line.getPoint(v.s, scratch.focus);
+  const t = line.getTangent(v.s, scratch.t1);
+  p.x += t.z * lateral;
+  p.z -= t.x * lateral;
+  p.y = RAIL_TOP + line.yAt(v.s);
+  return p;
 }
 
 // ---------------------------------------------------------------------------
@@ -382,7 +528,15 @@ function lerpAngle(a, b, t) {
 }
 
 function updateCamera(dt, snap = false) {
-  const heading = route.headingAt(state.s) + (state.dir > 0 ? 0 : 180);
+  if (cam.free) {
+    world.setCamera(cam.free);
+    return measureFocus();
+  }
+  const line = network.byId.get(state.lineId);
+  const v = state.vehicle;
+  const s = v ? v.s : line.length / 2;
+  const dir = v ? v.dir : 1;
+  const heading = line.headingAt(s) + (dir > 0 ? 0 : 180);
 
   if (!cam.init || snap) {
     cam.bearing = heading + MAP.chaseBearing;
@@ -390,91 +544,34 @@ function updateCamera(dt, snap = false) {
   }
 
   const now = performance.now();
-  if (now - cam.lastInteract > 6500 && Math.abs(cam.bearingOffset) > 0.02) {
-    cam.bearingOffset *= Math.exp(-dt * 0.85);
+  if (now - cam.lastInteract > 7000 && Math.abs(cam.bearingOffset) > 0.02) {
+    cam.bearingOffset *= Math.exp(-dt * 0.9);
   }
 
   const targetBearing = heading + MAP.chaseBearing + cam.bearingOffset;
-  cam.bearing = snap ? targetBearing : lerpAngle(cam.bearing, targetBearing, 1 - Math.exp(-dt * 2.4));
-  cam.pitch += (cam.pitchTarget - cam.pitch) * (1 - Math.exp(-dt * 4.6));
-  cam.zoom += (cam.zoomTarget - cam.zoom) * (1 - Math.exp(-dt * 4.6));
+  cam.bearing = snap ? targetBearing : lerpAngle(cam.bearing, targetBearing, 1 - Math.exp(-dt * 2.2));
+  cam.pitch += (cam.pitchTarget - cam.pitch) * (1 - Math.exp(-dt * 4.2));
+  cam.zoom += (cam.zoomTarget - cam.zoom) * (1 - Math.exp(-dt * 4.2));
 
+  const focus = measureFocus();
   const br = (cam.bearing * Math.PI) / 180;
   const pr = (cam.pitch * Math.PI) / 180;
-  const ahead = cam.lookAhead * (0.66 + 0.34 * Math.sin(pr));
-  route.getPoint(state.s, scratch.point);
-  route.getTangent(state.s, scratch.t1);
-  scratch.point.x += scratch.t1.z * TRACK_LATERAL;
-  scratch.point.z -= scratch.t1.x * TRACK_LATERAL;
-  const cx =
-    scratch.point.x + Math.sin(br) * ahead + Math.cos(br) * MAP.cameraOffset;
-  const cz =
-    scratch.point.z + Math.cos(br) * ahead - Math.sin(br) * MAP.cameraOffset;
-  const ll = route.toLngLat(cx, cz);
+  const ahead = cam.lookAhead * (0.55 + 0.45 * Math.sin(pr));
+  const lat = v ? v.lateral ?? -TRACK_OFFSET * v.dir : 0;
+  const t = line.getTangent(s);
+  const cx = focus.x + Math.sin(br) * ahead + Math.cos(br) * MAP.cameraOffset;
+  const cz = focus.z + Math.cos(br) * ahead - Math.sin(br) * MAP.cameraOffset;
+  const ll = line.toLngLat(cx, cz);
 
-  world.setCamera({
-    center: [ll.lng, ll.lat],
-    bearing: cam.bearing,
-    pitch: cam.pitch,
-    zoom: cam.zoom,
-  });
+  world.setCamera({ center: [ll.lng, ll.lat], bearing: cam.bearing, pitch: cam.pitch, zoom: cam.zoom });
+  return focus;
 }
 
 function recenterCamera() {
   cam.bearingOffset = 0;
-  cam.pitchTarget = MAP.pitch;
-  cam.zoomTarget = MAP.initialZoom;
+  cam.pitchTarget = 46;
+  cam.zoomTarget = 19.15;
   cam.lastInteract = performance.now();
-}
-
-// ---------------------------------------------------------------------------
-// physics prediction (for ETAs)
-// ---------------------------------------------------------------------------
-
-function predictTime(fromS, fromV, dir, targetS) {
-  let s = fromS;
-  let v = fromV;
-  let t = 0;
-  const dt = 0.25;
-  for (let i = 0; i < 2400; i++) {
-    const d = (targetS - s) * dir;
-    if (d <= 0.4) return t;
-    const stopDist = (v * v) / (2 * SIM.maxBrake);
-    let desired = SIM.cruise;
-    if (d < stopDist + 34) desired = Math.min(desired, Math.sqrt(2 * SIM.maxBrake * Math.max(0, d - 0.4)));
-    const a = clamp((desired - v) * 1.55, -SIM.maxBrake, SIM.maxAccel);
-    v = Math.max(0, v + a * dt);
-    s += dir * v * dt;
-    t += dt;
-  }
-  return t;
-}
-
-function predictStations(count = 5) {
-  const stations = route.stations;
-  const out = [];
-  let s = state.s;
-  let v = state.v;
-  let t = state.phase === 'dwell' ? state.timer : 0;
-  let idx = state.nextIndex;
-  for (let n = 0; n < count; n++) {
-    if (idx < 0 || idx >= stations.length) break;
-    const target = stations[idx];
-    const run = predictTime(s, v, state.dir, target.s);
-    t += run;
-    out.push({
-      station: target,
-      index: idx,
-      eta: t,
-      run,
-      distance: Math.abs(target.s - state.s),
-    });
-    t += dwellAt(idx);
-    s = target.s;
-    v = 0;
-    idx += state.dir;
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -485,135 +582,292 @@ const fmtTime = (seconds) => {
   const s = Math.max(0, Math.round(seconds));
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 };
-const fmtClock = (seconds) => {
-  const sign = seconds < -0.5 ? '−' : '+';
-  const s = Math.max(0, Math.round(Math.abs(seconds)));
-  return `${sign}${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-};
 
-function loadFactor() {
-  const base = state.dir > 0 ? 0.71 : 0.37;
-  const wave = 0.15 * Math.sin((state.index + 1) * 1.63 + (state.dir > 0 ? 0.4 : 2.1));
-  const drift = 0.035 * Math.sin(performance.now() * 0.00016);
-  return clamp(base + wave + drift, 0.18, 0.97);
+function currentLine() {
+  return network.byId.get(state.lineId);
 }
 
-function doorLabel() {
-  if (state.doors > 0.93) return 'OPEN';
-  if (state.doorTarget > 0.5 && state.doors > 0.03) return 'OPENING';
-  if (state.doors > 0.03) return 'CLOSING';
-  return 'CLOSED';
+function arrivalEta(v, tNow) {
+  if (!v || !v.pattern) return 0;
+  const stops = v.pattern.stops;
+  const idx = Math.min(v.nextIdx ?? 1, stops.length - 1);
+  const base = v.kind === 'turnback' ? v.trip.s0 : v.trip.s0;
+  return Math.max(0, base + stops[idx].a - tNow);
 }
 
-let predictions = [];
-let predAccum = 0;
-
-function updatePrediction() {
-  if (!ready) return;
-  predictions = predictStations(5);
+function nextStationOf(v) {
+  if (!v) return null;
+  const line = currentLine();
+  const idx = Math.min(v.nextIdx ?? 1, v.pattern.stops.length - 1);
+  return line.stations[v.pattern.stops[idx].st] || null;
 }
+
+let lastPickerUpdate = 0;
 
 function updateHud(dt) {
-  predAccum += dt;
-  if (predAccum > 0.85) {
-    predAccum = 0;
-    updatePrediction();
+  const line = currentLine();
+  const part = istParts(state.epoch);
+
+  if (els.clock) {
+    const h = Math.floor(part.sec / 3600);
+    const m = Math.floor((part.sec % 3600) / 60);
+    const s = Math.floor(part.sec % 60);
+    els.clock.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')} IST`;
+  }
+  if (els.serviceLabel) {
+    const names = ['WEEKDAY', 'SATURDAY', 'SUNDAY'];
+    els.serviceLabel.textContent = names[svcIndexFor(network, state.epoch)] || 'WEEKDAY';
   }
 
-  const stations = route.stations;
-  const next = stations[state.nextIndex];
-  const prev = stations[state.nextIndex - state.dir];
-  if (!next) return;
+  const v = state.vehicle;
+  if (!v) {
+    if (els.runState) els.runState.textContent = 'NO ACTIVE SET';
+    return;
+  }
 
-  const d = Math.max(0, (next.s - state.s) * state.dir);
-  const eta = state.phase === 'dwell' ? state.timer + predictTime(state.s, 0, state.dir, next.s) : predictTime(state.s, state.v, state.dir, next.s);
+  const next = nextStationOf(v);
+  const stops = v.pattern.stops;
+  const idx = Math.min(v.nextIdx ?? 1, stops.length - 1);
+  const prevSt = line.stations[stops[Math.max(0, idx - 1)].st];
+  const eta = arrivalEta(v, part.sec);
+  const d = next ? Math.abs(next.s - v.s) : 0;
 
-  els.nextName.textContent = next.name;
-  els.nextMeta.textContent = `TOWARDS ${(state.dir > 0 ? 'RAIDURG' : 'NAGOLE')}`;
-  els.nextSeq.textContent = `${String(state.nextIndex + 1).padStart(2, '0')} / ${stations.length}`;
-  els.etaVal.textContent = fmtTime(eta);
-  els.distVal.textContent = (d / 1000).toFixed(2);
+  if (els.nextName) els.nextName.textContent = next ? next.name : '—';
+  if (els.nextMeta) els.nextMeta.textContent = `TOWARDS ${v.dir > 0 ? line.to : line.from}`;
+  if (els.nextSeq) els.nextSeq.textContent = `${String(idx + 1).padStart(2, '0')} / ${stops.length}`;
+  if (els.etaVal) els.etaVal.textContent = fmtTime(eta);
+  if (els.distVal) els.distVal.textContent = (d / 1000).toFixed(2);
 
-  const prevIndex = state.nextIndex - state.dir;
-  const prevStation = stations[prevIndex] || stations[state.index];
-  const span = Math.max(1, Math.abs(next.s - (prevStation ? prevStation.s : state.s)));
-  let progress01 = prevStation ? (state.dir > 0 ? (state.s - prevStation.s) / span : (prevStation.s - state.s) / span) : 0;
+  const span = Math.max(1, Math.abs((next ? next.s : v.s) - (prevSt ? prevSt.s : v.s)));
+  let progress01 = prevSt ? (v.pattern.dir > 0 ? (v.s - prevSt.s) / span : (prevSt.s - v.s) / span) : 0;
   progress01 = clamp(progress01, 0, 1);
-  els.progressFill.style.width = `${progress01 * 100}%`;
-  els.progressDot.style.left = `${progress01 * 100}%`;
-  els.prevName.textContent = prevStation ? prevStation.name : '—';
-  els.nextLabel.textContent = next.name;
+  if (els.progressFill) els.progressFill.style.width = `${progress01 * 100}%`;
+  if (els.progressDot) els.progressDot.style.left = `${progress01 * 100}%`;
+  if (els.prevName) els.prevName.textContent = prevSt ? prevSt.name : line.from.toUpperCase();
+  if (els.nextLabel) els.nextLabel.textContent = next ? next.name : line.to.toUpperCase();
 
-  // upcoming list (stations after the immediate next)
-  const rows = [];
-  for (let n = 1; n < predictions.length; n++) {
-    const p = predictions[n];
-    rows.push(
-      `<li><span class="u-seq">${String(p.index + 1).padStart(2, '0')}</span>` +
-        `<span class="u-name">${p.station.name}</span>` +
-        `<span class="u-dist">${(p.distance / 1000).toFixed(2)}<em>km</em></span>` +
-        `<span class="u-eta">${fmtTime(p.eta)}</span></li>`
-    );
-  }
-  els.upcomingList.innerHTML = rows.join('');
-
-  const kmh = state.v * 3.6;
-  els.speedVal.textContent = String(Math.round(kmh));
-  const a = state.accel;
-  els.accelVal.textContent = `${a >= 0 ? '+' : '−'}${Math.abs(a).toFixed(2)}`;
-  els.accelVal.classList.toggle('negative', a < -0.12);
-  const pct = clamp(a / 2.2, -1, 1);
-  els.accelFill.style.width = `${Math.abs(pct) * 50}%`;
-  els.accelFill.style.left = pct >= 0 ? '50%' : `${50 - Math.abs(pct) * 50}%`;
-  els.accelFill.classList.toggle('negative', pct < 0);
-
-  const k = route.getCurvature(state.s);
-  const radius = k > 1e-5 ? 1 / k : Infinity;
-  const latG = (state.v * state.v * k) / 9.81;
-  els.latVal.innerHTML = `${Math.abs(latG).toFixed(2)}<em>g</em>`;
-  els.curveVal.innerHTML = radius > 2600 ? `STRAIGHT` : `R ${Math.round(radius)}<em>m</em>`;
-  els.gradeVal.innerHTML = `0.0<em>%</em>`;
-  els.tractionVal.innerHTML = `${Math.round((Math.max(0, a) / SIM.maxAccel) * 100)}<em>%</em>`;
-  els.doorsVal.textContent = doorLabel();
-  els.doorsVal.classList.toggle('warm', state.doors > 0.03);
-  const load = loadFactor();
-  els.loadVal.innerHTML = `${Math.round(load * 100)}<em>%</em>`;
-  els.delayVal.textContent = fmtClock(state.delay);
-  els.delayVal.classList.toggle('warm', state.delay > 25);
-  els.odoVal.innerHTML = `${(state.odo / 1000).toFixed(2)}<em>km</em>`;
-
-  if (state.phase === 'dwell') {
-    els.runState.textContent =
-      state.doors > 0.05
-        ? state.timer <= SIM.doorTime
-          ? `DWELL · DOORS CLOSING · ${fmtTime(state.timer)}`
-          : `DWELL · DOORS OPEN · ${fmtTime(state.timer)}`
-        : `DWELL · ${fmtTime(state.timer)}`;
-  } else if (a < -0.18) {
-    els.runState.textContent = 'BRAKING · APPROACHING';
-  } else if (a > 0.14) {
-    els.runState.textContent = 'TRACTION · ACCELERATING';
-  } else if (state.v > SIM.cruise * 0.9) {
-    els.runState.textContent = 'CRUISE · LINE SPEED';
-  } else {
-    els.runState.textContent = 'COASTING';
+  // upcoming rows from the timetable itself
+  if (els.upcomingList) {
+    const rows = [];
+    for (let k = idx + 1; k < Math.min(stops.length, idx + 5); k++) {
+      const sst = line.stations[stops[k].st];
+      if (!sst) continue;
+      const rowEta = v.trip.s0 + stops[k].a - part.sec;
+      rows.push(
+        `<li><span class="u-seq">${String(k + 1).padStart(2, '0')}</span>` +
+          `<span class="u-name">${sst.name}</span>` +
+          `<span class="u-dist">${(Math.abs(sst.s - v.s) / 1000).toFixed(2)}<em>km</em></span>` +
+          `<span class="u-eta">${fmtTime(rowEta)}</span></li>`
+      );
+    }
+    els.upcomingList.innerHTML = rows.join('');
   }
 
-  els.runTag.textContent = `RUN 03-${String(state.nextIndex + 1).padStart(2, '0')} · D–M–D`;
-  els.mapStatus.textContent = `${Math.round(cam.zoom * 100) / 100}× · ${Math.round(cam.pitch)}° PITCH`;
-}
+  const kmh = v.v * 3.6;
+  if (els.speedVal) els.speedVal.textContent = String(Math.round(kmh));
+  let a = 0;
+  if (v.phase === 'run' && v.seg) {
+    const el = v.segElapsed;
+    a = el < v.seg.ta ? v.seg.A : el < v.seg.ta + v.seg.tc ? 0 : -v.seg.B;
+  }
+  if (els.accelVal) {
+    els.accelVal.textContent = `${a >= 0 ? '+' : '−'}${Math.abs(a).toFixed(2)}`;
+    els.accelVal.classList.toggle('negative', a < -0.12);
+  }
+  if (els.accelFill) {
+    const pct = clamp(a / 2.2, -1, 1);
+    els.accelFill.style.width = `${Math.abs(pct) * 50}%`;
+    els.accelFill.style.left = pct >= 0 ? '50%' : `${50 - Math.abs(pct) * 50}%`;
+    els.accelFill.classList.toggle('negative', pct < 0);
+  }
 
-let clockAccum = 0;
-function updateClock(dt) {
-  clockAccum += dt;
-  if (clockAccum < 1) return;
-  clockAccum = 0;
-  const now = new Date();
-  els.clock.textContent = now.toLocaleTimeString('en-GB', { hour12: false });
+  const k = line.getCurvature(v.s);
+  const radius = k > 1e-6 ? 1 / k : Infinity;
+  const latG = (v.v * v.v * k) / 9.81;
+  if (els.latVal) els.latVal.innerHTML = `${Math.abs(latG).toFixed(2)}<em>g</em>`;
+  if (els.curveVal) els.curveVal.innerHTML = radius > 2600 ? 'STRAIGHT' : `R ${Math.round(radius)}<em>m</em>`;
+  if (els.gradeVal) els.gradeVal.innerHTML = `0.0<em>%</em>`;
+  if (els.tractionVal) els.tractionVal.innerHTML = `${Math.round(clamp(a / 1.05, 0, 1) * 100)}<em>%</em>`;
+  if (els.doorsVal) {
+    const dOpen = v.doors > 0.5;
+    els.doorsVal.textContent = dOpen ? 'OPEN' : v.kind === 'turnback' ? 'HOLD' : 'CLOSED';
+    els.doorsVal.classList.toggle('warm', dOpen);
+  }
+  if (els.loadVal) {
+    const load = 0.46 + 0.3 * Math.sin((line.stations.indexOf(next) + 2) * 1.7 + (v.pattern.dir > 0 ? 0.3 : 1.9));
+    els.loadVal.innerHTML = `${Math.round(clamp(load, 0.2, 0.95) * 100)}<em>%</em>`;
+  }
+  if (els.delayVal) {
+    els.delayVal.textContent = 'ON TIME';
+    els.delayVal.classList.remove('warm');
+  }
+  if (els.odoVal) {
+    const odo = Math.abs(v.s - line.stations[0].s) / 1000;
+    els.odoVal.innerHTML = `${odo.toFixed(2)}<em>km</em>`;
+  }
+
+  if (els.runState) {
+    if (v.kind === 'turnback') {
+      els.runState.textContent = v.phase === 'shunt' ? 'TERMINUS · SHUNTING TO OPPOSITE TRACK' : 'TERMINUS · DOORS OPEN';
+    } else if (v.phase === 'dwell') {
+      els.runState.textContent = `DWELL · ${next ? next.name.toUpperCase() : ''}`;
+    } else if (a < -0.18) {
+      els.runState.textContent = 'BRAKING · APPROACHING';
+    } else if (a > 0.14) {
+      els.runState.textContent = 'TRACTION · ACCELERATING';
+    } else if (v.v > 20) {
+      els.runState.textContent = 'CRUISE · LINE SPEED';
+    } else {
+      els.runState.textContent = 'COASTING';
+    }
+  }
+  if (els.runTag) {
+    els.runTag.textContent = `${line.id} · ${v.block.id.split(':')[1]} · D–M–D`;
+  }
+  if (els.trainCount) {
+    els.trainCount.textContent = `${state.renderedTrains || 1} SETS IN VIEW`;
+  }
+
+  // picker, refreshed occasionally and never while open
+  const now = performance.now();
+  if (now - lastPickerUpdate > 2500 && els.trainPicker && document.activeElement !== els.trainPicker) {
+    lastPickerUpdate = now;
+    const focus = scratch.focus;
+    const list = activeVehicles(focus, 4000);
+    list.sort((a, b) => a.distance - b.distance);
+    const chosen = list.slice(0, 14);
+    const html = chosen
+      .map((x) => `<option value="${x.block.id}">${vehicleLabel(x)}</option>`)
+      .join('');
+    els.trainPicker.innerHTML = html;
+    if (state.followId) els.trainPicker.value = state.followId;
+    if (els.mapStatus) els.mapStatus.textContent = `${state.renderedTrains || 1} SETS · ${cam.zoom.toFixed(2)}× · ${Math.round(cam.pitch)}°`;
+  }
 }
 
 // ---------------------------------------------------------------------------
-// input
+// UI wiring
+// ---------------------------------------------------------------------------
+
+function syncLineUI() {
+  if (!els.lineSwitch) return;
+  for (const b of els.lineSwitch.querySelectorAll('button')) {
+    b.classList.toggle('active', b.dataset.line === state.lineId);
+  }
+  document.documentElement.dataset.line = state.lineId;
+}
+
+function applyNight() {
+  document.documentElement.dataset.timeMode = state.night ? 'night' : 'day';
+  if (!world) return;
+  world.setTimeMode(state.night ? 'night' : 'day');
+  for (const lr of lineRuntime.values()) {
+    lr.stations.setNight(state.night);
+    lr.detailed.setNight(state.night);
+    for (const p of lr.proxies) p.setNight(state.night);
+  }
+  if (state.stationGlow) {
+    state.stationGlow.material.opacity = state.night ? 0.85 : 0;
+  }
+  if (state.interchangeLinks && state.interchangeLinks.lamp) {
+    state.interchangeLinks.lamp.opacity = state.night ? 0.8 : 0;
+  }
+  if (els.nightBtn) {
+    els.nightBtn.classList.toggle('active', state.night);
+    els.nightBtn.setAttribute('aria-pressed', String(state.night));
+  }
+  applySceneGrade();
+}
+
+function applySceneGrade() {
+  // tone the whole 3D layer slightly differently at night
+  const map = world && world.map;
+  if (!map) return;
+}
+
+function setPlaying(playing) {
+  state.playing = playing;
+  if (els.playBtn) {
+    els.playBtn.classList.toggle('paused', !playing);
+    els.playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  }
+}
+
+function setRate(rate) {
+  state.rate = rate;
+  document.querySelectorAll('.dock-btn.rate').forEach((b) => {
+    b.classList.toggle('active', Number(b.dataset.rate) === rate);
+  });
+}
+
+function toggleNight() {
+  state.night = !state.night;
+  applyNight();
+}
+
+function toggleNotes(open) {
+  if (!els.notes) return;
+  const next = open ?? !els.notes.classList.contains('open');
+  els.notes.classList.toggle('open', next);
+}
+
+function bindControls() {
+  if (els.playBtn) els.playBtn.addEventListener('click', () => setPlaying(!state.playing));
+  if (els.resetCam) els.resetCam.addEventListener('click', recenterCamera);
+  if (els.infoBtn) els.infoBtn.addEventListener('click', () => toggleNotes());
+  if (els.notesClose) els.notesClose.addEventListener('click', () => toggleNotes(false));
+  if (els.nightBtn) els.nightBtn.addEventListener('click', toggleNight);
+  if (els.lineSwitch) {
+    els.lineSwitch.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-line]');
+      if (!btn) return;
+      const line = network.byId.get(btn.dataset.line);
+      const p = line.getPoint(line.length / 2);
+      selectNearestTrain(btn.dataset.line, p, false);
+      cam.init = false;
+      recenterCamera();
+    });
+  }
+  if (els.trainPicker) {
+    els.trainPicker.addEventListener('change', () => {
+      selectVehicle(els.trainPicker.value);
+      recenterCamera();
+    });
+  }
+
+  document.querySelectorAll('.dock-btn.rate').forEach((b) => {
+    b.addEventListener('click', () => setRate(Number(b.dataset.rate)));
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+    if (e.code === 'Space') {
+      e.preventDefault();
+      setPlaying(!state.playing);
+    } else if (e.key === '1') setRate(0.5);
+    else if (e.key === '2') setRate(1);
+    else if (e.key === '3') setRate(4);
+    else if (e.key.toLowerCase() === 'r') recenterCamera();
+    else if (e.key.toLowerCase() === 'i') toggleNotes();
+    else if (e.key.toLowerCase() === 'h') document.body.classList.toggle('hide-ui');
+    else if (e.key.toLowerCase() === 'n') toggleNight();
+    else if (e.key.toLowerCase() === 'l') {
+      const order = ['RED', 'GREEN', 'BLUE'];
+      const i = order.indexOf(state.lineId);
+      const next = order[(i + 1) % order.length];
+      const line = network.byId.get(next);
+      selectNearestTrain(next, line.getPoint(line.length / 2), false);
+      recenterCamera();
+    } else if (e.key.toLowerCase() === 'b') {
+      const visible = !document.body.classList.contains('no-buildings');
+      world.setBuildingsVisible(visible);
+      document.body.classList.toggle('no-buildings', !visible);
+    } else if (e.key === 'Escape') toggleNotes(false);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// pointer
 // ---------------------------------------------------------------------------
 
 function bindPointer() {
@@ -624,8 +878,7 @@ function bindPointer() {
   const pointers = new Map();
   let drag = null;
   let pinch = 0;
-
-  const zoomClamp = (z) => clamp(z, 16.8, 21.3);
+  const zoomClamp = (z) => clamp(z, 15.6, 21.3);
 
   canvas.addEventListener('pointerdown', (e) => {
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -643,7 +896,6 @@ function bindPointer() {
   canvas.addEventListener('pointermove', (e) => {
     if (!pointers.has(e.pointerId)) return;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
     if (pointers.size >= 2) {
       const [a, b] = [...pointers.values()];
       const dist = Math.hypot(a.x - b.x, a.y - b.y);
@@ -655,7 +907,7 @@ function bindPointer() {
       drag.x = e.clientX;
       drag.y = e.clientY;
       cam.bearingOffset -= dx * 0.3;
-      cam.pitchTarget = clamp(cam.pitchTarget - dy * 0.26, 24, 72);
+      cam.pitchTarget = clamp(cam.pitchTarget - dy * 0.24, 24, 72);
     }
     cam.lastInteract = performance.now();
   });
@@ -670,7 +922,7 @@ function bindPointer() {
   };
   canvas.addEventListener('pointerup', release);
   canvas.addEventListener('pointercancel', release);
-  canvas.addEventListener('pointerleave', (e) => {
+  canvas.addEventListener('pointerleave', () => {
     if (pointers.size === 0) canvas.style.cursor = 'grab';
   });
 
@@ -691,82 +943,61 @@ function bindPointer() {
 }
 
 // ---------------------------------------------------------------------------
-// controls
-// ---------------------------------------------------------------------------
-
-function setPlaying(playing) {
-  state.playing = playing;
-  els.playBtn.classList.toggle('paused', !playing);
-  els.playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
-}
-
-function setRate(rate) {
-  state.rate = rate;
-  document.querySelectorAll('.dock-btn.rate').forEach((b) => {
-    b.classList.toggle('active', Number(b.dataset.rate) === rate);
-  });
-}
-
-function setStatus(text) {
-  if (els.mapStatus) els.mapStatus.textContent = text;
-}
-
-function toggleNotes(open) {
-  const next = open ?? !els.notes.classList.contains('open');
-  els.notes.classList.toggle('open', next);
-}
-
-function bindControls() {
-  els.playBtn.addEventListener('click', () => setPlaying(!state.playing));
-  els.resetCam.addEventListener('click', recenterCamera);
-  els.infoBtn.addEventListener('click', () => toggleNotes());
-  els.notesClose.addEventListener('click', () => toggleNotes(false));
-
-  document.querySelectorAll('.dock-btn.rate').forEach((b) => {
-    b.addEventListener('click', () => setRate(Number(b.dataset.rate)));
-  });
-
-  window.addEventListener('keydown', (e) => {
-    if (e.target instanceof HTMLInputElement) return;
-    if (e.code === 'Space') {
-      e.preventDefault();
-      setPlaying(!state.playing);
-    } else if (e.key === '1') setRate(0.5);
-    else if (e.key === '2') setRate(1);
-    else if (e.key === '3') setRate(2);
-    else if (e.key.toLowerCase() === 'r') recenterCamera();
-    else if (e.key.toLowerCase() === 'i') toggleNotes();
-    else if (e.key.toLowerCase() === 'h') document.body.classList.toggle('hide-ui');
-    else if (e.key.toLowerCase() === 'b') {
-      const visible = !document.body.classList.contains('no-buildings');
-      world.setBuildingsVisible(visible);
-      document.body.classList.toggle('no-buildings', !visible);
-    } else if (e.key === 'Escape') toggleNotes(false);
-  });
-}
-
-// ---------------------------------------------------------------------------
 // loop
 // ---------------------------------------------------------------------------
 
 let last = performance.now();
 let hudAccum = 0;
+let fpsAccum = 0;
+let fpsFrames = 0;
+let fps = 60;
+let lowQuality = false;
 
 function frame(now) {
   const raw = (now - last) / 1000;
   last = now;
-  const dt = Math.min(0.05, Math.max(0.001, raw));
+  const dt = Math.min(0.1, Math.max(0.001, raw));
 
-  if (state.playing) simulate(dt * state.rate);
-  placeCars(dt);
-  updateCamera(dt);
-  world.updateSun(scratch.mid);
+  if (state.playing) state.epoch += dt * state.rate;
+
+  const t = istParts(state.epoch).sec;
+  const svc = svcIndexFor(network, state.epoch);
+  if (state.followId) {
+    const block = fleet.blocks.find((b) => b.id === state.followId);
+    if (block) {
+      const st = fleet.stateAt(block, t, svc);
+      if (st) state.vehicle = st;
+    }
+  }
+
+  const focus = updateCamera(dt);
+  placeAll();
+  world.updateSun(focus);
 
   hudAccum += dt;
-  if (hudAccum > 0.08) {
+  if (hudAccum > 0.09) {
     hudAccum = 0;
     updateHud(dt);
-    updateClock(dt);
+  }
+
+  // fps + adaptive quality
+  fpsAccum += raw;
+  fpsFrames++;
+  if (fpsAccum > 1) {
+    fps = fpsFrames / fpsAccum;
+    fpsAccum = 0;
+    fpsFrames = 0;
+    if (els.stats) {
+      els.stats.textContent = `${Math.round(fps)} FPS · ${world.stats.drawCalls} CALLS · ${state.renderedTrains || 0} SETS`;
+    }
+    if (!lowQuality && fps < 38 && ready) {
+      lowQuality = true;
+      if (world.sun) {
+        world.sun.shadow.mapSize.set(1024, 1024);
+        world.sun.shadow.map?.dispose();
+        world.sun.shadow.map = null;
+      }
+    }
   }
 
   world.trigger();
@@ -781,7 +1012,6 @@ boot().then(() => {
   if (ready) bindControls();
 });
 
-// bind pointer as soon as the map is available (world is created synchronously)
 const pointerTimer = setInterval(() => {
   if (world && world.map && world.map.getCanvas()) {
     bindPointer();
@@ -790,26 +1020,45 @@ const pointerTimer = setInterval(() => {
 }, 60);
 
 window.metro = {
-  get route() { return route; },
+  get network() { return network; },
   get world() { return world; },
-  get train() { return train; },
-  state,
+  get fleet() { return fleet; },
+  get state() { return state; },
   cam,
   setRate,
   setPlaying,
   recenterCamera,
+  toggleNight,
+  selectLine(id) {
+    const line = network.byId.get(id);
+    if (!line) return;
+    selectNearestTrain(id, line.getPoint(line.length / 2), false);
+    recenterCamera();
+  },
+  selectVehicle,
+  viewStation(lineId, index, opts = {}) {
+    const line = network.byId.get(lineId) || currentLine();
+    const st = line.stations[clamp(index, 0, line.stations.length - 1)];
+    const t = line.getTangent(st.s);
+    const heading = (Math.atan2(t.x, t.z) * 180) / Math.PI;
+    const bearing = opts.bearing ?? heading + (opts.offset ?? -26);
+    const ll = line.toLngLat(st.x, st.z);
+    cam.free = {
+      center: [ll.lng, ll.lat],
+      bearing,
+      pitch: opts.pitch ?? 56,
+      zoom: opts.zoom ?? 18.7,
+    };
+    return { name: st.name, s: st.s };
+  },
+  clearFreeCam() {
+    cam.free = null;
+  },
   jumpToStation(index) {
-    if (!route) return;
-    state.index = clamp(index, 0, route.stations.length - 1);
-    state.dir = state.index === route.stations.length - 1 ? -1 : 1;
-    state.nextIndex = state.index + state.dir;
-    state.s = route.stations[state.index].s;
-    state.phase = 'dwell';
-    state.timer = 10;
-    state.v = 0;
-    state.doors = 0;
-    state.doorTarget = 1;
-    train.setMode(state.dir);
-    train.setDestination(state.dir > 0 ? 'RAIDURG' : 'NAGOLE');
+    const line = currentLine();
+    const st = line.stations[clamp(index, 0, line.stations.length - 1)];
+    selectNearestTrain(state.lineId, line.getPoint(st.s), false);
+    state.epoch = Date.now() / 1000;
+    recenterCamera();
   },
 };

@@ -23,8 +23,8 @@ export const MAP = {
   maxPitch: 76,
   // Chase camera looks this far up the line from the train, offset to the side
   // so the set is seen in three-quarter view rather than dead astern.
-  lookAhead: 16,
-  cameraOffset: 3.5,
+  lookAhead: 8,
+  cameraOffset: 2.6,
   // The chase view is swung a little off the track heading so the flank of the
   // train is visible; dragging adds to this base angle.
   chaseBearing: -20,

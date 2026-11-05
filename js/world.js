@@ -1,229 +1,281 @@
 // ---------------------------------------------------------------------------
 // MapLibre + Three.js bridge
 //
-// The map is drawn by MapLibre (Esri satellite raster + OpenFreeMap buildings).
-// The guideway and the train live in a custom 3D layer rendered with Three.js
-// into MapLibre's own WebGL context. The scene is authored in a local metric
-// frame (x = east, y = up, z = north) and projected into Mercator at render
-// time with a double-precision matrix, which keeps the train glued to the
-// real corridor even at street zoom.
+// MapLibre draws the satellite raster and the OSM city. The guideways,
+// stations and trains live in a custom 3D layer rendered into MapLibre's own
+// WebGL context. The scene is authored in a local metric frame (x east,
+// y up, z north); the Mercator transform is folded into the projection matrix
+// so a single draw call can place geometry anywhere on the planet without
+// losing float precision.
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
 import { MAP } from './config.js';
+import { createLighting, PRESETS } from './lighting.js';
 
 const ESRI_TILES =
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 
-const STYLE = {
-  version: 8,
-  name: 'HMR Blue Line',
-  glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
-  sources: {
-    satellite: {
-      type: 'raster',
-      tiles: [ESRI_TILES],
-      tileSize: 256,
-      minzoom: 0,
-      maxzoom: 19,
-      attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
+function buildStyle(network) {
+  return {
+    version: 8,
+    name: 'Hyderabad Metro',
+    glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+    sky: {
+      'sky-color': '#7fb0d8',
+      'horizon-color': '#dbe3da',
+      'fog-color': '#dbe3da',
+      'fog-ground-blend': 0.9,
+      'horizon-fog-blend': 0.7,
+      'sky-horizon-blend': 0.8,
+      'atmosphere-blend': 0.85,
     },
-    omt: {
-      type: 'vector',
-      url: 'https://tiles.openfreemap.org/planet',
-      attribution: 'Data © OpenStreetMap contributors · Tiles OpenFreeMap',
-    },
-  },
-  layers: [
-    {
-      id: 'background',
-      type: 'background',
-      paint: { 'background-color': '#0a1012' },
-    },
-    {
-      id: 'satellite',
-      type: 'raster',
-      source: 'satellite',
-      paint: {
-        'raster-saturation': -0.08,
-        'raster-contrast': 0.04,
-        'raster-brightness-min': 0.02,
-        'raster-brightness-max': 0.96,
+    sources: {
+      satellite: {
+        type: 'raster',
+        tiles: [ESRI_TILES],
+        tileSize: 256,
+        minzoom: 0,
+        maxzoom: 19,
+        attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
+      },
+      omt: {
+        type: 'vector',
+        url: 'https://tiles.openfreemap.org/planet',
+        attribution: 'Data © OpenStreetMap contributors · Tiles OpenFreeMap',
       },
     },
-    {
-      id: 'buildings-3d',
-      type: 'fill-extrusion',
-      source: 'omt',
-      'source-layer': 'building',
-      minzoom: 14.2,
-      filter: [
-        'all',
-        ['==', ['geometry-type'], 'Polygon'],
-        ['>=', ['coalesce', ['get', 'render_height'], 0], 14],
-      ],
-      paint: {
-        'fill-extrusion-color': [
-          'interpolate', ['linear'], ['coalesce', ['get', 'render_height'], 14],
-          14, '#8d887e',
-          40, '#a29c90',
-          90, '#bcb5a7',
+    layers: [
+      { id: 'background', type: 'background', paint: { 'background-color': '#0a1012' } },
+      {
+        id: 'satellite',
+        type: 'raster',
+        source: 'satellite',
+        paint: {
+          'raster-saturation': -0.06,
+          'raster-contrast': 0.05,
+          'raster-brightness-min': 0.01,
+          'raster-brightness-max': 0.97,
+        },
+      },
+      // Night city: the roads themselves become the source of light. Three
+      // stacked line layers give a soft amber bloom over every street, which
+      // reads as sodium lighting from the air without any external tiles.
+      {
+        id: 'night-streets-bloom',
+        type: 'line',
+        source: 'omt',
+        'source-layer': 'transportation',
+        minzoom: 13,
+        layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+        filter: [
+          'match',
+          ['get', 'class'],
+          ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service'],
+          true,
+          false,
         ],
-        'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 14],
-        'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
-        'fill-extrusion-opacity': 0.86,
-        'fill-extrusion-vertical-gradient': true,
+        paint: {
+          'line-color': '#ff8a2a',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 13, 10, 16, 26, 18, 48],
+          'line-opacity': 0.1,
+          'line-blur': 20,
+        },
       },
-    },
-  ],
-};
+      {
+        id: 'night-streets-glow',
+        type: 'line',
+        source: 'omt',
+        'source-layer': 'transportation',
+        minzoom: 13,
+        layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+        filter: [
+          'match',
+          ['get', 'class'],
+          ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service'],
+          true,
+          false,
+        ],
+        paint: {
+          'line-color': '#ff9a3c',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 13, 3, 16, 8, 18, 18],
+          'line-opacity': 0.22,
+          'line-blur': 7,
+        },
+      },
+      {
+        id: 'night-streets-core',
+        type: 'line',
+        source: 'omt',
+        'source-layer': 'transportation',
+        minzoom: 13,
+        layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+        filter: [
+          'match',
+          ['get', 'class'],
+          ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service'],
+          true,
+          false,
+        ],
+        paint: {
+          'line-color': '#ffe2b0',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.4, 16, 1.0, 18, 2.0],
+          'line-opacity': 0.4,
+          'line-blur': 1.2,
+        },
+      },
+      {
+        id: 'buildings-3d',
+        type: 'fill-extrusion',
+        source: 'omt',
+        'source-layer': 'building',
+        minzoom: 14.0,
+        layout: { visibility: 'none' },
+        filter: [
+          'all',
+          ['==', ['geometry-type'], 'Polygon'],
+          ['>=', ['coalesce', ['get', 'render_height'], 0], 10],
+        ],
+        paint: {
+          'fill-extrusion-color': [
+            'interpolate', ['linear'], ['coalesce', ['get', 'render_height'], 10],
+            10, '#8f8a80',
+            30, '#a8a294',
+            80, '#c2bbab',
+            160, '#d3ccbb',
+          ],
+          'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 10],
+          'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+          'fill-extrusion-opacity': 0.82,
+          'fill-extrusion-vertical-gradient': true,
+        },
+      },
+    ],
+  };
+}
 
-function stationCollection(route) {
+function lineGeoJSON(network) {
   return {
     type: 'FeatureCollection',
-    features: route.stations.map((st, i) => ({
+    features: network.lines.map((l) => ({
       type: 'Feature',
-      properties: {
-        name: st.name,
-        seq: i + 1,
-        terminus: i === 0 || i === route.stations.length - 1 ? 1 : 0,
-      },
-      geometry: { type: 'Point', coordinates: [st.lon, st.lat] },
+      properties: { id: l.id, color: l.color },
+      geometry: { type: 'LineString', coordinates: l.outline },
     })),
   };
 }
 
-function addMapLayers(map, route) {
-  map.addSource('route', { type: 'geojson', data: route.toGeoJSON() });
-  map.addSource('stations', { type: 'geojson', data: stationCollection(route) });
+function stationGeoJSON(network) {
+  const features = [];
+  for (const line of network.lines) {
+    for (const st of line.stations) {
+      features.push({
+        type: 'Feature',
+        properties: {
+          name: st.name,
+          line: line.id,
+          color: line.color,
+          interchange: st.interchange && st.interchange.length ? 1 : 0,
+          terminus: st.order === 0 || st.order === line.stations.length - 1 ? 1 : 0,
+        },
+        geometry: { type: 'Point', coordinates: [st.lon, st.lat] },
+      });
+    }
+  }
+  return { type: 'FeatureCollection', features };
+}
 
+function addMapLayers(map, network) {
+  map.addSource('routes', { type: 'geojson', data: lineGeoJSON(network) });
+  map.addSource('stations', { type: 'geojson', data: stationGeoJSON(network) });
+
+  // All three lines are always drawn; the active one gets a brighter glow.
   map.addLayer({
     id: 'route-glow',
     type: 'line',
-    source: 'route',
+    source: 'routes',
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: {
-      'line-color': '#2f9bff',
-      'line-width': ['interpolate', ['linear'], ['zoom'], 13, 2, 16, 14, 18, 34],
-      'line-opacity': 0.16,
-      'line-blur': 8,
+      'line-color': ['get', 'color'],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 12, 2, 16, 16, 18, 40],
+      'line-opacity': 0.12,
+      'line-blur': 10,
     },
   });
-
+  map.addLayer({
+    id: 'route-casing',
+    type: 'line',
+    source: 'routes',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-color': 'rgba(6,14,20,0.55)',
+      'line-width': ['interpolate', ['linear'], ['zoom'], 12, 2.4, 16, 4.6, 18, 7],
+      'line-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0.75, 15.4, 0],
+    },
+  });
   map.addLayer({
     id: 'route-line',
     type: 'line',
-    source: 'route',
+    source: 'routes',
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: {
-      'line-color': '#8fd0ff',
-      'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.6, 16, 1.2, 18, 2.4],
-      'line-opacity': 0.5,
-      'line-dasharray': [2, 2.4],
+      'line-color': ['get', 'color'],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 12, 1.4, 16, 2.8, 18, 4.6],
+      'line-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0.9, 15.4, 0],
     },
   });
-
   map.addLayer({
     id: 'station-halo',
     type: 'circle',
     source: 'stations',
     paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 3.5, 17, 8],
-      'circle-color': '#0b5fae',
-      'circle-opacity': 0.35,
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 2.5, 17, 8],
+      'circle-color': ['get', 'color'],
+      'circle-opacity': 0.28,
       'circle-blur': 1,
     },
   });
-
   map.addLayer({
     id: 'station-dots',
     type: 'circle',
     source: 'stations',
     paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 1.6, 17, 3.4],
-      'circle-color': '#f4fbfd',
-      'circle-stroke-color': '#0b4f92',
-      'circle-stroke-width': 1.1,
-      'circle-opacity': 0.96,
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 1.2, 17, 3.1],
+      'circle-color': '#f7fbfc',
+      'circle-stroke-color': ['get', 'color'],
+      'circle-stroke-width': 1.2,
+      'circle-opacity': 0.95,
     },
   });
-
   map.addLayer({
     id: 'station-labels',
     type: 'symbol',
     source: 'stations',
-    minzoom: 14.2,
+    minzoom: 13.6,
     layout: {
       'text-field': ['get', 'name'],
       'text-font': ['Noto Sans Regular'],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 14.4, 9.5, 17.2, 12],
-      'text-offset': [0, 1.45],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 13.6, 9, 17.2, 11.5],
+      'text-offset': [0, 1.35],
       'text-anchor': 'top',
       'text-max-width': 9,
       'text-padding': 3,
       'text-allow-overlap': false,
+      'symbol-sort-key': ['get', 'interchange'],
     },
     paint: {
-      'text-color': '#f0f7f8',
-      'text-halo-color': 'rgba(5,12,16,0.9)',
+      'text-color': '#f2f8fa',
+      'text-halo-color': 'rgba(4,10,14,0.92)',
       'text-halo-width': 1.7,
       'text-halo-blur': 0.4,
     },
   });
 }
 
-function makeSkyEnvironment(renderer) {
-  const c = document.createElement('canvas');
-  c.width = 1024;
-  c.height = 512;
-  const g = c.getContext('2d');
-  const sky = g.createLinearGradient(0, 0, 0, 512);
-  sky.addColorStop(0, '#4a86c4');
-  sky.addColorStop(0.34, '#84b2dc');
-  sky.addColorStop(0.5, '#dfe4e0');
-  sky.addColorStop(0.54, '#b9b39f');
-  sky.addColorStop(1, '#565345');
-  g.fillStyle = sky;
-  g.fillRect(0, 0, 1024, 512);
-
-  // soft cloud bands
-  for (let i = 0; i < 26; i++) {
-    const x = Math.random() * 1024;
-    const y = 60 + Math.random() * 150;
-    const rx = 50 + Math.random() * 140;
-    const ry = 8 + Math.random() * 22;
-    const gr = g.createRadialGradient(x, y, 0, x, y, rx);
-    gr.addColorStop(0, `rgba(255,255,255,${0.06 + Math.random() * 0.13})`);
-    gr.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = gr;
-    g.beginPath();
-    g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
-    g.fill();
-  }
-
-  // sun glow, roughly matching the directional light
-  const sun = g.createRadialGradient(322, 150, 0, 322, 150, 210);
-  sun.addColorStop(0, 'rgba(255,252,238,1)');
-  sun.addColorStop(0.08, 'rgba(255,246,220,0.85)');
-  sun.addColorStop(0.35, 'rgba(255,225,170,0.22)');
-  sun.addColorStop(1, 'rgba(255,220,160,0)');
-  g.fillStyle = sun;
-  g.fillRect(80, 0, 500, 380);
-
-  const tex = new THREE.CanvasTexture(c);
-  tex.mapping = THREE.EquirectangularReflectionMapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const target = pmrem.fromEquirectangular(tex);
-  tex.dispose();
-  pmrem.dispose();
-  return target.texture;
-}
-
-export function createWorld({ route, viaduct, train, onProgress = () => {} }) {
+export function createWorld({ network, sceneObjects, onProgress = () => {} }) {
   const map = new maplibregl.Map({
     container: 'map',
-    style: STYLE,
+    style: buildStyle(network),
     center: [MAP.origin.lng, MAP.origin.lat],
     zoom: MAP.initialZoom,
     pitch: MAP.pitch,
@@ -245,8 +297,8 @@ export function createWorld({ route, viaduct, train, onProgress = () => {} }) {
   });
 
   const scene = new THREE.Scene();
-  scene.add(viaduct);
-  for (const car of train.cars) scene.add(car.group);
+  scene.name = 'metro';
+  for (const obj of sceneObjects) scene.add(obj);
 
   const camera = new THREE.PerspectiveCamera();
   camera.matrixAutoUpdate = false;
@@ -255,32 +307,21 @@ export function createWorld({ route, viaduct, train, onProgress = () => {} }) {
   camera.matrixWorld.identity();
   camera.matrixWorldInverse.identity();
 
-  const hemi = new THREE.HemisphereLight(0xbcd7f2, 0x6a6152, 0.9);
-  scene.add(hemi);
-  scene.add(new THREE.AmbientLight(0x9fb2c4, 0.22));
+  let lighting = null;
+  const shadowCatcher = new THREE.Mesh(
+    new THREE.PlaneGeometry(1600, 1600),
+    new THREE.ShadowMaterial({ color: 0x03070a, opacity: 0.55, depthWrite: false })
+  );
+  shadowCatcher.rotation.x = -Math.PI / 2;
+  shadowCatcher.receiveShadow = true;
+  shadowCatcher.renderOrder = 1;
+  shadowCatcher.position.y = 0.05;
+  scene.add(shadowCatcher);
 
-  const sunDir = new THREE.Vector3(0.58, 0.86, -0.32).normalize();
-  const sun = new THREE.DirectionalLight(0xfff1d8, 2.35);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -165;
-  sun.shadow.camera.right = 165;
-  sun.shadow.camera.top = 165;
-  sun.shadow.camera.bottom = -165;
-  sun.shadow.camera.near = 20;
-  sun.shadow.camera.far = 820;
-  sun.shadow.bias = -0.00045;
-  sun.shadow.normalBias = 0.55;
-  sun.shadow.intensity = 0.62;
-  sun.position.copy(sunDir).multiplyScalar(380);
-  scene.add(sun);
-  scene.add(sun.target);
-
-  // local metres -> Mercator (x east, y up, z north)
   const modelToMercator = new THREE.Matrix4().set(
-    route.S, 0, 0, route.O.x,
-    0, 0, -route.S, route.O.y,
-    0, route.S, 0, 0,
+    network.frame.S, 0, 0, network.frame.O.x,
+    0, 0, -network.frame.S, network.frame.O.y,
+    0, network.frame.S, 0, 0,
     0, 0, 0, 1
   );
 
@@ -288,6 +329,7 @@ export function createWorld({ route, viaduct, train, onProgress = () => {} }) {
   let lastW = 0;
   let lastH = 0;
   const mat = new THREE.Matrix4();
+  let drawCalls = 0;
 
   const customLayer = {
     id: 'metro-3d',
@@ -299,19 +341,23 @@ export function createWorld({ route, viaduct, train, onProgress = () => {} }) {
         context: gl,
         antialias: true,
         alpha: false,
+        powerPreference: 'high-performance',
+        stencil: false,
       });
       renderer.autoClear = false;
       renderer.setPixelRatio(1);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.0;
+      renderer.toneMappingExposure = 1.05;
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       renderer.shadowMap.autoUpdate = true;
       renderer.info.autoReset = false;
-
-      scene.environment = makeSkyEnvironment(renderer);
-      scene.environmentIntensity = 0.82;
+      lighting = createLighting({
+        scene,
+        renderer,
+        preset: document.documentElement.dataset.timeMode === 'night' ? 'night' : 'day',
+      });
       onProgress(0.9);
     },
     render(_gl, matrix) {
@@ -326,7 +372,9 @@ export function createWorld({ route, viaduct, train, onProgress = () => {} }) {
       camera.projectionMatrix.copy(mat).multiply(modelToMercator);
       camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
       renderer.resetState();
+      renderer.info.reset();
       renderer.render(scene, camera);
+      drawCalls = renderer.info.render.calls;
     },
   };
 
@@ -337,15 +385,13 @@ export function createWorld({ route, viaduct, train, onProgress = () => {} }) {
       settled = true;
       resolve();
     };
-    // Never let a slow tile/style server trap the intro screen.
-    setTimeout(done, 14000);
+    setTimeout(done, 16000);
     map.on('load', () => {
       onProgress(0.72);
-      addMapLayers(map, route);
+      addMapLayers(map, network);
       map.addLayer(customLayer);
-      // One tile sweep before we call it ready, with a hard timeout.
       map.once('idle', done);
-      setTimeout(done, 4200);
+      setTimeout(done, 5000);
     });
   });
 
@@ -354,49 +400,105 @@ export function createWorld({ route, viaduct, train, onProgress = () => {} }) {
   }
 
   function updateSun(target) {
-    sun.target.position.copy(target);
-    sun.position.copy(target).addScaledVector(sunDir, 380);
-    sun.target.updateMatrixWorld();
+    if (!lighting) return;
+    lighting.updateSun(target);
+    shadowCatcher.position.set(target.x, 0.05, target.z);
+  }
+
+  function setTimeMode(mode) {
+    const night = mode === 'night';
+    document.documentElement.dataset.timeMode = night ? 'night' : 'day';
+    if (lighting) lighting.setMode(night ? 'night' : 'day');
+    if (map.setSky) {
+      map.setSky(
+        night
+          ? {
+              'sky-color': '#04070d',
+              'horizon-color': '#17243a',
+              'fog-color': '#091120',
+              'fog-ground-blend': 0.85,
+              'horizon-fog-blend': 0.75,
+              'sky-horizon-blend': 0.85,
+              'atmosphere-blend': 0.9,
+            }
+          : {
+              'sky-color': '#7fb0d8',
+              'horizon-color': '#dbe3da',
+              'fog-color': '#dbe3da',
+              'fog-ground-blend': 0.9,
+              'horizon-fog-blend': 0.7,
+              'sky-horizon-blend': 0.8,
+              'atmosphere-blend': 0.85,
+            }
+      );
+    }
+    if (map.getLayer('satellite')) {
+      map.setPaintProperty('satellite', 'raster-brightness-max', night ? 0.36 : 0.97);
+      map.setPaintProperty('satellite', 'raster-brightness-min', night ? 0.0 : 0.01);
+      map.setPaintProperty('satellite', 'raster-saturation', night ? -0.5 : -0.06);
+      map.setPaintProperty('satellite', 'raster-contrast', night ? 0.3 : 0.05);
+      map.setPaintProperty('satellite', 'raster-hue-rotate', night ? 14 : 0);
+    }
+    if (map.getLayer('buildings-3d')) {
+      map.setPaintProperty('buildings-3d', 'fill-extrusion-color', night ? '#0d1116' : [
+        'interpolate', ['linear'], ['coalesce', ['get', 'render_height'], 10],
+        10, '#8f8a80',
+        30, '#a8a294',
+        80, '#c2bbab',
+        160, '#d3ccbb',
+      ]);
+      map.setPaintProperty('buildings-3d', 'fill-extrusion-opacity', night ? 0.96 : 0.82);
+    }
+    if (map.getLayer('route-glow')) {
+      map.setPaintProperty('route-glow', 'line-opacity', night ? 0.32 : 0.12);
+      map.setPaintProperty('route-glow', 'line-blur', night ? 14 : 10);
+    }
+    if (map.getLayer('station-labels')) {
+      map.setPaintProperty('station-labels', 'text-color', night ? '#e6f0ff' : '#f2f8fa');
+    }
+    for (const id of ['night-streets-bloom', 'night-streets-glow', 'night-streets-core']) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', night ? 'visible' : 'none');
+    }
+    if (night && map.getLayer('night-streets-glow')) {
+      map.setPaintProperty('night-streets-glow', 'line-opacity', 0.26);
+      map.setPaintProperty('night-streets-core', 'line-opacity', 0.46);
+    }
   }
 
   function trigger() {
     map.triggerRepaint();
   }
 
-  if (typeof ResizeObserver !== 'undefined') {
-    const container = map.getContainer();
-    const ro = new ResizeObserver(() => {
-      lastW = 0;
-      lastH = 0;
-      map.resize();
-    });
-    ro.observe(container);
+  function setBuildingsVisible(visible) {
+    if (map.getLayer('buildings-3d')) {
+      map.setLayoutProperty('buildings-3d', 'visibility', visible ? 'visible' : 'none');
+    }
   }
-  window.addEventListener('resize', () => {
-    lastW = 0;
-    lastH = 0;
-    map.resize();
-  });
 
   return {
     map,
     scene,
     camera,
-    sun,
-    ready,
-    modelToMercator,
-    setCamera,
+    get renderer() {
+      return renderer;
+    },
+    get sun() {
+      return lighting ? lighting.sun : null;
+    },
+    get lighting() {
+      return lighting;
+    },
+    get stats() {
+      return { drawCalls };
+    },
+    setTimeMode,
+    get timeMode() {
+      return document.documentElement.dataset.timeMode || 'day';
+    },
+    setBuildingsVisible,
     updateSun,
+    setCamera,
     trigger,
-    setBuildingsVisible(visible) {
-      if (map.getLayer('buildings-3d')) {
-        map.setLayoutProperty('buildings-3d', 'visibility', visible ? 'visible' : 'none');
-      }
-    },
-    setLabelsVisible(visible) {
-      if (map.getLayer('station-labels')) {
-        map.setLayoutProperty('station-labels', 'visibility', visible ? 'visible' : 'none');
-      }
-    },
+    ready,
   };
 }

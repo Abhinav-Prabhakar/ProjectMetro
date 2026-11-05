@@ -12,7 +12,7 @@ import { loadNetwork } from './network.js';
 import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js';
 import { buildStations } from './station.js';
 import { createTrain, createTrainProxy } from './train.js';
-import { createWorld } from './world.js';
+import { createWorld } from './world.js?v=20261105b';
 import { Fleet, istParts, svcIndexFor } from './sim.js';
 import { makeGlowRadial } from './materials.js';
 import { mergeGeometries } from './geomutil.js';

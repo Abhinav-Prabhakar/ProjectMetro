@@ -227,7 +227,7 @@ function platformTexture(anisotropy = 8) {
 function stationRoofTexture(anisotropy = 8) {
   const c = canvas2d(512, 512);
   const g = c.getContext('2d');
-  g.fillStyle = '#e9edee';
+  g.fillStyle = '#dde5e8';
   g.fillRect(0, 0, 512, 512);
   // long panels between purlins
   for (let x = 0; x < 512; x += 64) {
@@ -522,6 +522,8 @@ export function buildViaduct(route, { anisotropy = 8 } = {}) {
   const arms = new THREE.InstancedMesh(armGeo, steelMat, mastCount);
   let mi = 0;
   for (let s = 24; s < route.length - 10; s += mastSpacing) {
+    // the station canopy carries the contact wire, so no masts there
+    if (route.stations.some((st) => Math.abs(st.s - s) < 56)) continue;
     const p = route.getPoint(s);
     const t = route.getTangent(s);
     const nx = t.z;
@@ -627,71 +629,95 @@ export function buildViaduct(route, { anisotropy = 8 } = {}) {
     // Flat ribbed roofs over each platform, carried on a single row of columns
     // down the platform centreline. The middle of the station stays open above
     // the running lines so the set is always visible from the chase camera.
-    const CAN_W = 4.9;
-    const CAN_L = 92;
-    const CAN_Y = 5.35;
+    const CAN_W = 3.4;
+    const CAN_L = 88;
+    const SKY_W = 0.86;
+    const CAN_Y = 6.3;
     const roofMap = stationRoofTexture(anisotropy);
-    roofMap.repeat.set(1, 18);
+    roofMap.repeat.set(1, 22);
     const roofMat = new THREE.MeshStandardMaterial({
       map: roofMap,
-      color: 0xf4f6f5,
-      roughness: 0.55,
-      metalness: 0.08,
+      color: 0xa8c4ce,
+      roughness: 0.32,
+      metalness: 0.62,
+      envMapIntensity: 1.1,
     });
     for (const sgn of [-1, 1]) {
-      const cx = sgn * 5.95;
+      const cx = sgn * 6.1;
+      const panelW = (CAN_W - SKY_W) / 2;
 
-      // roof slab, slightly cambered by the texture
-      const roof = new THREE.Mesh(new THREE.BoxGeometry(CAN_W, 0.16, CAN_L), roofMat);
-      roof.position.set(cx, CAN_Y, 0);
-      roof.castShadow = true;
-      roof.receiveShadow = true;
-      g.add(roof);
+      // shallow gable: two panels rise to a skylit ridge over the platform
+      for (const pnl of [-1, 1]) {
+        const panel = new THREE.Mesh(new THREE.BoxGeometry(panelW, 0.09, CAN_L), roofMat);
+        panel.position.set(
+          cx + pnl * (SKY_W / 2 + panelW / 2),
+          CAN_Y + 0.17 - Math.abs(pnl) * 0.0,
+          0
+        );
+        panel.rotation.z = -pnl * 0.075;
+        panel.castShadow = true;
+        panel.receiveShadow = true;
+        g.add(panel);
+      }
 
-      // dark soffit
+      // skylight down the ridge
+      const sky = new THREE.Mesh(new THREE.BoxGeometry(SKY_W, 0.03, CAN_L), skyMat);
+      sky.position.set(cx, CAN_Y + 0.245, 0);
+      g.add(sky);
+      const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.07, CAN_L), ribMat);
+      ridge.position.set(cx, CAN_Y + 0.27, 0);
+      g.add(ridge);
+
+      // purlins across the canopy
+      for (let zz = -CAN_L / 2 + 4; zz <= CAN_L / 2; zz += 5.5) {
+        const rib = new THREE.Mesh(new THREE.BoxGeometry(CAN_W, 0.04, 0.075), ribMat);
+        rib.position.set(cx, CAN_Y + 0.16, zz);
+        g.add(rib);
+      }
+
+      // dark soffit under the canopy
       const soffit = new THREE.Mesh(
-        new THREE.BoxGeometry(CAN_W - 0.12, 0.05, CAN_L - 0.1),
+        new THREE.BoxGeometry(CAN_W - 0.1, 0.05, CAN_L - 0.1),
         soffitMat
       );
-      soffit.position.set(cx, CAN_Y - 0.11, 0);
+      soffit.position.set(cx, CAN_Y + 0.07, 0);
       g.add(soffit);
 
-      // blue fascia along both long edges and both ends
+      // blue fascias at both eaves
       for (const e of [-1, 1]) {
-        const fascia = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.52, CAN_L), roofTrimMat);
-        fascia.position.set(cx + e * (CAN_W / 2 - 0.08), CAN_Y - 0.22, 0);
+        const fascia = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.48, CAN_L), roofTrimMat);
+        fascia.position.set(cx + e * (CAN_W / 2 - 0.05), CAN_Y - 0.02, 0);
         g.add(fascia);
 
-        // slim gutter above the fascia
-        const gutter = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.07, CAN_L), ribMat);
-        gutter.position.set(cx + e * (CAN_W / 2 - 0.02), CAN_Y + 0.1, 0);
+        const gutter = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, CAN_L), ribMat);
+        gutter.position.set(cx + e * (CAN_W / 2 + 0.05), CAN_Y + 0.1, 0);
         g.add(gutter);
       }
       for (const zEnd of [-CAN_L / 2, CAN_L / 2]) {
-        const endFascia = new THREE.Mesh(new THREE.BoxGeometry(CAN_W, 0.52, 0.16), roofTrimMat);
-        endFascia.position.set(cx, CAN_Y - 0.22, zEnd);
+        const endFascia = new THREE.Mesh(new THREE.BoxGeometry(CAN_W, 0.48, 0.13), roofTrimMat);
+        endFascia.position.set(cx, CAN_Y - 0.02, zEnd);
         g.add(endFascia);
       }
 
       // name board on the outer fascia, facing away from the track
       const tex = stationSignTexture(st.name, '03');
       const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
-      const board = new THREE.Mesh(new THREE.PlaneGeometry(6.2, 1.5), mat);
-      board.position.set(sgn * (5.95 + CAN_W / 2 + 0.02), CAN_Y + 0.72, 0);
+      const board = new THREE.Mesh(new THREE.PlaneGeometry(5.8, 1.4), mat);
+      board.position.set(sgn * (6.1 + CAN_W / 2 + 0.03), CAN_Y + 0.5, 0);
       board.rotation.y = sgn > 0 ? Math.PI / 2 : -Math.PI / 2;
       g.add(board);
 
       // hanging name boards under the canopy, readable on approach
-      for (const zz of [-34, 34]) {
+      for (const zz of [-32, 32]) {
         const hangTex = stationSignTexture(st.name, '03');
         const hangMat = new THREE.MeshBasicMaterial({ map: hangTex, side: THREE.DoubleSide });
         const hang = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 0.72), hangMat);
-        hang.position.set(cx, CAN_Y - 0.62, zz);
+        hang.position.set(cx, CAN_Y - 0.5, zz);
         hang.rotation.y = zz > 0 ? Math.PI : 0;
         g.add(hang);
         for (const hx of [-1.1, 1.1]) {
-          const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.34, 6), ribMat);
-          rod.position.set(cx + hx, CAN_Y - 0.28, zz);
+          const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.32, 6), ribMat);
+          rod.position.set(cx + hx, CAN_Y - 0.18, zz);
           g.add(rod);
         }
       }
@@ -706,15 +732,15 @@ export function buildViaduct(route, { anisotropy = 8 } = {}) {
           roughness: 0.4,
         })
       );
-      strip.position.set(cx, CAN_Y - 0.16, 0);
+      strip.position.set(cx, CAN_Y + 0.02, 0);
       g.add(strip);
     }
 
     for (let zz = -52; zz <= 52; zz += 13) {
       for (const sgn of [-1, 1]) {
         colList.push({
-          x: p.x + Math.cos(yaw) * sgn * 5.95 + Math.sin(yaw) * zz,
-          z: p.z - Math.sin(yaw) * sgn * 5.95 + Math.cos(yaw) * zz,
+          x: p.x + Math.cos(yaw) * sgn * 5.55 + Math.sin(yaw) * zz,
+          z: p.z - Math.sin(yaw) * sgn * 5.55 + Math.cos(yaw) * zz,
           yaw,
         });
       }
@@ -734,8 +760,8 @@ export function buildViaduct(route, { anisotropy = 8 } = {}) {
     stationGroup.add(g);
   }
 
-  const stationColGeo = new THREE.CylinderGeometry(0.17, 0.2, 5.45, 10);
-  stationColGeo.translate(0, 2.725, 0);
+  const stationColGeo = new THREE.CylinderGeometry(0.17, 0.2, 6.25, 10);
+  stationColGeo.translate(0, 3.125, 0);
   const stationCols = new THREE.InstancedMesh(stationColGeo, steelMat, colList.length);
   colList.forEach((c, i) => {
     m4.compose(

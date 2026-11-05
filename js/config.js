@@ -58,8 +58,8 @@ export const TRAIN = {
   windowWidth: 2.35,
   endWindowCentres: [-8.75, 8.75],
   endWindowWidth: 1.32,
-  blueBandBottom: 3.1,
-  blueBandTop: 3.56,
+  blueBandBottom: 3.19,
+  blueBandTop: 3.71,
 };
 
 export const SIM = {

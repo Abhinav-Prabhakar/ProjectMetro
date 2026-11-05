@@ -37,7 +37,7 @@ browser blocks `file://` module loading).
 
 ## What is simulated
 
-- 23 stations, 26.9 km, real station order and spacing from OpenStreetMap.
+- 23 stations, 27.2 km, real station order and spacing from OpenStreetMap.
 - Acceleration, line-speed cruise, braking and a stop at every station.
 - Door opening / dwell / closing, with a longer layover at the termini.
 - Direction reversal at Nagole and Raidurg; destination blinds and head / tail
@@ -48,6 +48,9 @@ browser blocks `file://` module loading).
 - 3-car D–M–D set with four doors per side per car, glazed panels between the
   doors, identical cab ends, brushed-steel body, blue cantrail, blue cab with the
   HMR red / green / blue stripe motif, roof AC units and a single-arm pantograph.
+- Elevated guideway with a centre walkway, cable troughs, parapet panel joints,
+  catenary masts and contact wires; platforms with granite paving, tactile
+  strips, ribbed canopies, blue fascias and hanging name boards.
 
 ## Map stack (all free, keyless)
 
@@ -86,7 +89,7 @@ Useful while tuning (all optional):
 - `?station=Habsiguda` — start dwelling at a named or zero-based station.
 - `?km=17.05` — start mid-section at a chainage in kilometres.
 - `?hold=1` — hold at the selected station with the doors open (UI test).
-- `?zoom=19.4&pitch=52&look=18` — override the chase camera.
+- `?zoom=20.15&pitch=50&look=16` — override the chase camera.
 - `?raf=1` — run the animation loop on a timer instead of `requestAnimationFrame`
   (for headless / background-tab capture).
 

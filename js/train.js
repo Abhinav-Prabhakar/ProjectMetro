@@ -85,15 +85,17 @@ function makeSteelRoughness() {
 function makeRoofTexture() {
   const c = canvas2d(512, 512);
   const g = c.getContext('2d');
-  g.fillStyle = '#b8bcbd';
+  g.fillStyle = '#cdd2d3';
   g.fillRect(0, 0, 512, 512);
-  // longitudinal ribs
-  for (let x = 0; x < 512; x += 10) {
-    g.fillStyle = x % 20 === 0 ? 'rgba(255,255,255,0.11)' : 'rgba(30,34,35,0.14)';
+  // faint longitudinal panel lines
+  for (let x = 0; x < 512; x += 32) {
+    g.fillStyle = 'rgba(255,255,255,0.10)';
     g.fillRect(x, 0, 1, 512);
+    g.fillStyle = 'rgba(66,74,76,0.10)';
+    g.fillRect(x + 1, 0, 1, 512);
   }
-  for (let i = 0; i < 400; i++) {
-    g.fillStyle = `rgba(20,24,25,${Math.random() * 0.06})`;
+  for (let i = 0; i < 240; i++) {
+    g.fillStyle = `rgba(30,36,38,${Math.random() * 0.025})`;
     g.fillRect(Math.random() * 512, Math.random() * 512, 20 + Math.random() * 80, 1);
   }
   return c;
@@ -1186,21 +1188,21 @@ function makeMaterials(anisotropy) {
 
   const blue = new THREE.MeshPhysicalMaterial({
     color: COLORS.paintBlue,
-    metalness: 0.08,
-    roughness: 0.3,
-    clearcoat: 0.65,
-    clearcoatRoughness: 0.16,
-    envMapIntensity: 0.95,
+    metalness: 0.1,
+    roughness: 0.22,
+    clearcoat: 0.9,
+    clearcoatRoughness: 0.1,
+    envMapIntensity: 1.4,
   });
 
   const glass = new THREE.MeshPhysicalMaterial({
-    color: 0x040d11,
-    metalness: 0.0,
-    roughness: 0.28,
-    clearcoat: 0.35,
-    clearcoatRoughness: 0.18,
-    envMapIntensity: 0.3,
-    emissive: 0x05141a,
+    color: 0x081114,
+    metalness: 0.05,
+    roughness: 0.46,
+    clearcoat: 0.14,
+    clearcoatRoughness: 0.3,
+    envMapIntensity: 0.16,
+    emissive: 0x060f12,
     emissiveIntensity: 1,
   });
 
@@ -1216,16 +1218,16 @@ function makeMaterials(anisotropy) {
     endPanel: new THREE.MeshStandardMaterial({ color: 0x1c1f20, roughness: 0.65, metalness: 0.2 }),
     roof: new THREE.MeshStandardMaterial({
       map: roofMap,
-      color: 0xe6e9e9,
-      roughness: 0.62,
-      metalness: 0.24,
+      color: 0xf2f6f8,
+      roughness: 0.44,
+      metalness: 0.3,
     }),
     roofDark: new THREE.MeshStandardMaterial({ color: 0x4a5051, roughness: 0.62 }),
     ac: new THREE.MeshStandardMaterial({
       map: roofMap,
-      color: 0xeef1f1,
-      roughness: 0.55,
-      metalness: 0.22,
+      color: 0xf7fafa,
+      roughness: 0.5,
+      metalness: 0.2,
     }),
     grille: new THREE.MeshStandardMaterial({
       map: grilleMap,

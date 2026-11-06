@@ -7,15 +7,15 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { MAP, TRAIN, SIM } from './config.js?v=20261106g';
-import { loadNetwork } from './network.js?v=20261106g';
-import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261106g';
-import { buildStations } from './station.js?v=20261106g';
-import { createTrain, createTrainProxy } from './train.js?v=20261106g';
-import { createWorld } from './world.js?v=20261106g';
-import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261106g';
-import { makeGlowRadial } from './materials.js?v=20261106g';
-import { mergeGeometries } from './geomutil.js?v=20261106g';
+import { MAP, TRAIN, SIM } from './config.js?v=20261107a';
+import { loadNetwork } from './network.js?v=20261107a';
+import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261107a';
+import { buildStations } from './station.js?v=20261107a';
+import { createTrain, createTrainProxy } from './train.js?v=20261107a';
+import { createWorld } from './world.js?v=20261107a';
+import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261107a';
+import { makeGlowRadial } from './materials.js?v=20261107a';
+import { mergeGeometries } from './geomutil.js?v=20261107a';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -33,6 +33,19 @@ const els = {
   prevName: $('prevName'),
   nextLabel: $('nextLabel'),
   upcomingList: $('upcomingList'),
+  closedCountdown: $('closedCountdown'),
+  closedFirst: $('closedFirst'),
+  closedLast: $('closedLast'),
+  closedDepartures: $('closedDepartures'),
+  closedFleetSize: $('closedFleetSize'),
+  closedInService: $('closedInService'),
+  closedLinesVal: $('closedLinesVal'),
+  closedStationsVal: $('closedStationsVal'),
+  closedLengthVal: $('closedLengthVal'),
+  closedWindowVal: $('closedWindowVal'),
+  closedFirstMetric: $('closedFirstMetric'),
+  closedLastMetric: $('closedLastMetric'),
+  closedReopen: $('closedReopen'),
   speedVal: $('speedVal'),
   accelVal: $('accelVal'),
   accelFill: $('accelFill'),
@@ -84,6 +97,15 @@ const UP = new THREE.Vector3(0, 1, 0);
 const params = new URLSearchParams(location.search);
 const requestedLine = (params.get('line') || '').toUpperCase();
 
+// The tracker follows IST, including the light. Unless a build is pinned with
+// ?night=0 / ?night=1, the scene starts in the state the city is actually in
+// and crosses over if the page stays open past dusk or dawn.
+const NIGHT_START = 18 * 3600 + 45 * 60;
+const NIGHT_END = 6 * 3600 + 15 * 60;
+const isNightAt = (sec) => sec >= NIGHT_START || sec < NIGHT_END;
+const pinnedNight = params.get('night');
+const initialNight = pinnedNight === null ? isNightAt(istParts(Date.now() / 1000).sec) : pinnedNight === '1';
+
 const scratch = {
   pA: new THREE.Vector3(),
   pB: new THREE.Vector3(),
@@ -104,8 +126,11 @@ const state = {
   playing: true,
   lineId: ['RED', 'GREEN', 'BLUE'].includes(requestedLine) ? requestedLine : 'BLUE',
   followId: null,
-  night: params.get('night') === '1',
-  nightK: params.get('night') === '1' ? 1 : 0,
+  night: initialNight,
+  nightK: initialNight ? 1 : 0,
+  nightAuto: pinnedNight === null,
+  serviceClosed: null,
+  service: null,
   doors: 0,
   vehicle: null,
   hasUserSelected: false,
@@ -396,7 +421,9 @@ async function boot() {
 
     ready = true;
     setProgress(1, 'SYSTEMS ONLINE');
-    if (els.mapStatus) els.mapStatus.textContent = 'SATELLITE / 3D · LIVE';
+    if (els.mapStatus) els.mapStatus.textContent = 'SATELLITE / 3D';
+    applyServiceState(serviceStatus(state.epoch));
+    updateHud(0);
 
     setTimeout(() => els.intro.classList.add('done'), 450);
     requestAnimationFrame(frame);
@@ -492,6 +519,131 @@ function serviceName() {
   return ['WEEKDAY', 'SATURDAY', 'SUNDAY'][svcIndexFor(network, state.epoch)] || 'WEEKDAY';
 }
 
+// ---------------------------------------------------------------------------
+// Service hours
+//
+// The GTFS feed has no "closed" message, but it does have a first departure
+// and a last arrival for every service class. Those two numbers are enough to
+// tell the difference between a quiet afternoon and 1 a.m., so the HUD can say
+// "closed" instead of drawing zeroes over a frozen train.
+// ---------------------------------------------------------------------------
+
+const serviceSummaries = new Map();
+
+function serviceSummary(svc) {
+  if (!network) return null;
+  const cached = serviceSummaries.get(svc);
+  if (cached) return cached;
+
+  let first = Infinity;
+  let last = -Infinity;
+  const lines = [];
+  for (const line of network.lines) {
+    let firstTrip = null;
+    let lastTrip = null;
+    for (const trip of line.trips) {
+      if (trip.svc !== svc) continue;
+      if (!firstTrip || trip.s0 < firstTrip.s0) firstTrip = trip;
+      if (!lastTrip || trip.s1 > lastTrip.s1) lastTrip = trip;
+      if (trip.s0 < first) first = trip.s0;
+      if (trip.s1 > last) last = trip.s1;
+    }
+    if (!firstTrip) continue;
+    const pattern = line.patterns[firstTrip.p];
+    const stops = pattern ? pattern.stops : [];
+    const from = stops.length ? line.stations[stops[0].st] : null;
+    const to = stops.length ? line.stations[stops[stops.length - 1].st] : null;
+    lines.push({
+      id: line.id,
+      color: line.color,
+      from: from ? from.name : line.from,
+      to: to ? to.name : line.to,
+      first: firstTrip.s0,
+    });
+  }
+  lines.sort((a, b) => LINE_ORDER.indexOf(a.id) - LINE_ORDER.indexOf(b.id));
+
+  const summary = { first, last, lines };
+  serviceSummaries.set(svc, summary);
+  return summary;
+}
+
+const fmtClock = (epochSeconds) => {
+  const p = istParts(epochSeconds);
+  const h = Math.floor(p.sec / 3600) % 24;
+  const m = Math.floor((p.sec % 3600) / 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+function fmtCountdown(seconds) {
+  const s = Math.max(0, Math.ceil(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+function fmtDuration(seconds) {
+  const m = Math.max(0, Math.round(seconds / 60));
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+}
+
+/** What the network is doing at `epoch`: running, or waiting for the first set. */
+function serviceStatus(epoch) {
+  if (!network) return null;
+  const part = istParts(epoch);
+  const svc = svcIndexFor(network, epoch);
+  const today = serviceSummary(svc);
+  if (!today) return null;
+
+  if (part.sec >= today.first && part.sec <= today.last) {
+    return {
+      closed: false,
+      svc,
+      today,
+      first: today.first,
+      last: today.last,
+      window: today.last - today.first,
+    };
+  }
+
+  // Before the first departure the next opening is later today; after the last
+  // arrival it is tomorrow, which may run on a different service class.
+  const dayBase = epoch - part.sec;
+  let openSvc = svc;
+  let openAt;
+  if (part.sec < today.first) {
+    openAt = dayBase + today.first;
+  } else {
+    openSvc = svcIndexFor(network, dayBase + 86400 + 43200);
+    const tomorrow = serviceSummary(openSvc);
+    openAt = dayBase + 86400 + tomorrow.first;
+  }
+  const open = serviceSummary(openSvc);
+
+  // The last train belongs to today after the shutdown, or to yesterday in the
+  // small hours, which is what makes "last train 23:56" honest at 00:08.
+  let lastAt;
+  if (part.sec >= today.first) {
+    lastAt = dayBase + today.last;
+  } else {
+    const prevSvc = svcIndexFor(network, dayBase - 43200);
+    lastAt = dayBase - 86400 + serviceSummary(prevSvc).last;
+  }
+
+  return {
+    closed: true,
+    svc,
+    openSvc,
+    today,
+    open,
+    openAt,
+    lastAt,
+    until: Math.max(0, openAt - epoch),
+    window: open.last - open.first,
+  };
+}
+
 // Two columns, balanced by rows. With three corridors the split is rarely even
 // (RED 12, GREEN 3, BLUE 13), so try every assignment and keep the one whose
 // tallest column is shortest. The first corridor always stays in the left
@@ -516,8 +668,48 @@ function packStacks(sections, columns = 2) {
   return best || [sections];
 }
 
+function renderClosedFleet(status) {
+  if (!els.fleetList) return;
+  const openClock = fmtClock(status.openAt);
+  const openBase = status.openAt - status.open.first;
+  const rows = status.open.lines
+    .map(
+      (item) =>
+        `<li style="--c:${item.color}">` +
+        `<div><span class="fc-line"><i></i>${escapeHtml(item.id)}</span>` +
+        `<span class="fc-dest">TO ${escapeHtml(item.to.toUpperCase())}</span></div>` +
+        `<span class="fc-time">${fmtClock(openBase + item.first)}</span></li>`
+    )
+    .join('');
+
+  els.fleetList.innerHTML =
+    `<div class="fleet-closed">` +
+    `<div class="fleet-closed-lead">` +
+    `<span class="fleet-closed-kicker"><i></i>NETWORK CLOSED</span>` +
+    `<div class="fleet-closed-title">All sets are stabled.<br/>First trains at <b>${openClock}</b>.</div>` +
+    `<div class="fleet-closed-count"><b id="fleetClosedCount">${fmtCountdown(status.until)}</b>` +
+    `<span class="eta-lab">UNTIL SERVICE RESUMES</span></div>` +
+    `</div>` +
+    `<div class="fleet-closed-next">` +
+    `<div class="up-head"><span>FIRST DEPARTURES</span><span>DEPARTS</span></div>` +
+    `<ul>${rows}</ul></div>` +
+    `</div>`;
+
+  if (els.fleetBoardTotal) els.fleetBoardTotal.textContent = '0';
+  if (els.fleetBoardService) els.fleetBoardService.textContent = `${serviceName()} · CLOSED`;
+}
+
 function renderFleet() {
   if (!els.fleetList) return;
+  const status = state.service || serviceStatus(state.epoch);
+  if (status && status.closed) {
+    picker.items = [];
+    picker.index = 0;
+    renderClosedFleet(status);
+    picker.renderedAt = performance.now();
+    return;
+  }
+
   const items = fleetItems();
   picker.items = items;
   if (picker.index >= items.length) picker.index = 0;
@@ -572,6 +764,17 @@ function updatePickerLabel() {
   if (!els.tsId) return;
   const v = state.vehicle;
   const line = currentLine();
+  if (state.serviceClosed && state.service) {
+    els.tsId.textContent = 'NETWORK CLOSED';
+    els.tsSub.textContent = `FIRST TRAIN ${fmtClock(state.service.openAt)}`;
+    if (els.tsDot) {
+      els.tsDot.classList.add('idle');
+      els.tsDot.style.background = '';
+      els.tsDot.style.removeProperty('--ts-c');
+    }
+    return;
+  }
+  if (els.tsDot) els.tsDot.classList.remove('idle');
   if (v) {
     const item = pickerItem(v);
     els.tsId.textContent = item.number;
@@ -635,7 +838,17 @@ function selectNearestTrain(lineId, point, initial = false) {
     const d = (p.x - point.x) ** 2 + (p.z - point.z) ** 2;
     if (!best || d < best.d) best = { block, st, d };
   }
-  if (!best) return false;
+  if (!best) {
+    // Out of service: there is nothing to follow, but the corridor switch and
+    // the camera should still respond instead of appearing dead.
+    state.lineId = lineId;
+    state.followId = null;
+    state.vehicle = null;
+    if (!initial) state.hasUserSelected = true;
+    cam.init = false;
+    syncLineUI();
+    return false;
+  }
   state.lineId = lineId;
   state.followId = best.block.id;
   state.vehicle = best.st;
@@ -898,6 +1111,14 @@ function updateFleetPulse(force = false) {
   if (!force && now - fleetPulseAt < 1000) return;
   fleetPulseAt = now;
 
+  if (state.nightAuto) {
+    const want = isNightAt(istParts(state.epoch).sec);
+    if (want !== state.night) {
+      state.night = want;
+      applyNight();
+    }
+  }
+
   const all = wholeNetwork();
   state.fleetAll = all;
   const byLine = { RED: 0, GREEN: 0, BLUE: 0 };
@@ -915,13 +1136,94 @@ function updateFleetPulse(force = false) {
       if (b) b.textContent = String(byLine[el.dataset.line] || 0);
     }
   }
-  if (els.fleetBoardService) els.fleetBoardService.textContent = serviceName();
+  if (els.fleetBoardService) {
+    els.fleetBoardService.textContent = state.serviceClosed
+      ? `${serviceName()} · CLOSED`
+      : serviceName();
+  }
   if (picker.open && now - picker.renderedAt > 2500) renderFleet();
+}
+
+function applyServiceState(status) {
+  if (!status) return;
+  state.service = status;
+  if (state.serviceClosed === status.closed) return;
+
+  const wasClosed = state.serviceClosed === true;
+  state.serviceClosed = status.closed;
+  document.documentElement.dataset.service = status.closed ? 'closed' : 'open';
+  if (els.playBtn) {
+    els.playBtn.disabled = status.closed;
+    els.playBtn.title = status.closed ? 'No service to pause' : '';
+  }
+
+  if (status.closed) {
+    state.vehicle = null;
+    if (els.runState) els.runState.textContent = 'NO ACTIVE SET';
+  } else if (wasClosed && !state.followId) {
+    // The page may have been open across the first departure.
+    selectNearestTrain(state.lineId, measureFocus(), true);
+    cam.init = false;
+  }
+}
+
+function updateClosedHud(status) {
+  if (!status || !status.closed) return;
+
+  const openClock = fmtClock(status.openAt);
+  // Pair the first departure with the last arrival of the *same* upcoming
+  // service, so the window, the countdown and the "last train" all agree.
+  const lastClock = fmtClock(status.openAt + (status.open.last - status.open.first));
+  const countdown = fmtCountdown(status.until);
+
+  if (els.closedCountdown && els.closedCountdown.textContent !== countdown) {
+    els.closedCountdown.textContent = countdown;
+  }
+  if (els.closedFirst) els.closedFirst.textContent = openClock;
+  if (els.closedLast) els.closedLast.textContent = lastClock;
+  if (els.closedFirstMetric) els.closedFirstMetric.textContent = openClock;
+  if (els.closedLastMetric) els.closedLastMetric.textContent = lastClock;
+  if (els.closedReopen) els.closedReopen.textContent = openClock;
+  if (els.closedInService) els.closedInService.textContent = String(state.fleetTotal || 0);
+  if (els.closedWindowVal) els.closedWindowVal.textContent = fmtDuration(status.window);
+
+  if (network) {
+    const stats = network.meta.stats;
+    if (els.closedLinesVal) els.closedLinesVal.textContent = String(network.lines.length);
+    if (els.closedStationsVal) els.closedStationsVal.textContent = String(stats.stations);
+    if (els.closedLengthVal) els.closedLengthVal.innerHTML = `${(stats.length / 1000).toFixed(1)}<em>km</em>`;
+  }
+
+  if (els.closedDepartures) {
+    const openBase = status.openAt - status.open.first;
+    const html = status.open.lines
+      .map(
+        (item) =>
+          `<li><span class="u-seq"><i style="--c:${item.color}"></i></span>` +
+          `<span class="u-name">TO ${escapeHtml(item.to.toUpperCase())}</span>` +
+          `<span class="u-dist">${escapeHtml(item.id)}</span>` +
+          `<span class="u-eta">${fmtClock(openBase + item.first)}</span></li>`
+      )
+      .join('');
+    if (els.closedDepartures.innerHTML !== html) els.closedDepartures.innerHTML = html;
+  }
+
+  if (els.mapStatus) {
+    els.mapStatus.textContent = `CLOSED · FIRST TRAIN ${openClock}`;
+  }
+
+  // keep the first-departures board ticking while it is open
+  if (picker.open) {
+    const fleetCount = document.getElementById('fleetClosedCount');
+    if (fleetCount) fleetCount.textContent = countdown;
+  }
 }
 
 function updateHud(dt) {
   const line = currentLine();
   const part = istParts(state.epoch);
+  const status = serviceStatus(state.epoch);
+  applyServiceState(status);
 
   if (els.clock) {
     const h = Math.floor(part.sec / 3600);
@@ -931,7 +1233,14 @@ function updateHud(dt) {
   }
   if (els.serviceLabel) {
     const names = ['WEEKDAY', 'SATURDAY', 'SUNDAY'];
-    els.serviceLabel.textContent = names[svcIndexFor(network, state.epoch)] || 'WEEKDAY';
+    const name = names[svcIndexFor(network, state.epoch)] || 'WEEKDAY';
+    els.serviceLabel.textContent = status && status.closed ? `${name} · CLOSED` : name;
+  }
+
+  if (status && status.closed) {
+    updateClosedHud(status);
+    updatePickerLabel();
+    return;
   }
 
   const v = state.vehicle;
@@ -1120,6 +1429,7 @@ function setPlaying(playing) {
 
 function toggleNight() {
   state.night = !state.night;
+  state.nightAuto = false;
   applyNight();
 }
 
@@ -1310,10 +1620,20 @@ function frame(now) {
   const svc = svcIndexFor(network, state.epoch);
   if (state.followId) {
     const block = fleet.blocks.find((b) => b.id === state.followId);
-    if (block) {
-      const st = fleet.stateAt(block, t, svc);
-      if (st) state.vehicle = st;
+    const st = block ? fleet.stateAt(block, t, svc) : null;
+    if (st) {
+      state.vehicle = st;
+    } else {
+      // The set has finished for the day (or its block is not running on this
+      // service class). Drop it rather than leaving a frozen train on screen;
+      // hop to another active set on the corridor if there is one.
+      state.vehicle = null;
+      if (!selectNearestTrain(state.lineId, measureFocus(), true)) state.followId = null;
     }
+  }
+  if (!state.followId && state.fleetTotal > 0) {
+    selectNearestTrain(state.lineId, measureFocus(), true);
+    cam.init = false;
   }
 
   stepNight(dt);

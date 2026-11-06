@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { VIADUCT, TRAIN, COLORS } from './config.js?v=20261106g';
+import { VIADUCT, TRAIN, COLORS } from './config.js?v=20261107a';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const Z = new THREE.Vector3(0, 0, 1);

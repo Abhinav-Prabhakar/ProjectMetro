@@ -334,17 +334,6 @@ button { font: inherit; color: inherit; }
   border-radius: 4px;
 }
 .dock-net { display: flex; align-items: center; gap: 13px; flex: none; }
-.dock-live {
-  display: flex; align-items: center; gap: 6px;
-  font-family: var(--mono); font-size: 6.5px; letter-spacing: 0.2em;
-  color: rgba(235, 242, 243, 0.5);
-}
-.dock-live i {
-  width: 5px; height: 5px; border-radius: 50%;
-  background: #5cd6a0;
-  box-shadow: 0 0 8px rgba(92, 214, 160, 0.8);
-  animation: live 2.4s ease-out infinite;
-}
 .dock-figure { display: flex; align-items: center; gap: 8px; }
 .dock-figure b {
   font-size: 23px; font-weight: 300; letter-spacing: -0.04em; line-height: 1;
@@ -635,7 +624,6 @@ body.hide-ui .fleet-board { display: none; }
   .footer { left: 14px; right: 14px; bottom: 6px; font-size: 5.5px; }
   .dock { bottom: 14px; width: calc(100vw - 20px); height: 52px; padding: 0 6px 0 12px; gap: 8px; }
   .dock-lines { display: none; }
-  .dock-live { display: none; }
   .dock-figure b { font-size: 20px; min-width: 22px; }
   .dock-figure span { font-size: 5px; }
   .dock-set { padding: 0 8px; }
@@ -1023,4 +1011,164 @@ html[data-line="BLUE"] .next-seq { border-left-color: rgba(88, 182, 255, 0.6); }
   .dock-controls { gap: 0; }
   .dock-btn { min-width: 32px; padding: 0 6px; }
   .dock-btn.primary { width: 34px; }
+}
+
+/* ---------- out of service ---------- */
+/* Between the last arrival and the first departure the tracker has nothing to
+   chase. Rather than leaving the live instruments showing zeros, the two
+   panels switch to a calm closed view: when service returns, where every set
+   is stabled, and what leaves first in the morning. */
+.view-closed { display: none; }
+html[data-service="closed"] .view-live { display: none; }
+html[data-service="closed"] .view-closed { display: block; }
+
+html[data-service="closed"] .live-dot {
+  background: #d8a56a;
+  animation: none;
+  box-shadow: 0 0 8px rgba(216, 165, 106, 0.7);
+}
+
+.closed-badge {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 7px; letter-spacing: 0.18em;
+  color: rgba(233, 195, 148, 0.92);
+}
+.closed-badge i {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: #d8a56a;
+  box-shadow: 0 0 8px rgba(216, 165, 106, 0.75);
+}
+
+.closed-countdown {
+  display: flex; flex-direction: column; gap: 9px;
+  margin: 16px 0 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.closed-countdown-num {
+  font-family: var(--mono); font-size: 40px; font-weight: 400;
+  letter-spacing: -0.055em; line-height: 1;
+  color: #f4f8f8; font-variant-numeric: tabular-nums;
+}
+
+.closed-window { display: flex; align-items: flex-end; justify-content: space-between; }
+.closed-window-item { display: flex; flex-direction: column; gap: 6px; }
+.closed-window-item.right { text-align: right; align-items: flex-end; }
+.closed-window-item b {
+  font-family: var(--mono); font-size: 20px; font-weight: 400;
+  letter-spacing: -0.02em; color: #edf3f4;
+  font-variant-numeric: tabular-nums;
+}
+
+.closed-upcoming { margin-top: 16px; }
+.closed-upcoming li { grid-template-columns: 18px minmax(0, 1fr) 34px 44px; }
+.closed-upcoming .u-seq { display: flex; align-items: center; padding: 0; border: 0; }
+.closed-upcoming .u-seq i {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 8px var(--c);
+}
+.closed-upcoming .u-dist { letter-spacing: 0.12em; font-size: 6.5px; }
+
+.closed-fleet {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  margin-top: 15px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.closed-fleet-block { display: flex; flex-direction: column; gap: 7px; }
+.closed-fleet-block.right { align-items: flex-end; text-align: right; }
+.closed-fleet-num {
+  font-size: 58px; line-height: 0.8; font-weight: 300;
+  letter-spacing: -0.06em; color: #f5f8f8;
+  font-variant-numeric: tabular-nums;
+}
+.closed-fleet-num.dim { color: rgba(238, 243, 244, 0.34); }
+.closed-metrics { border-top: 0; }
+.closed-tag i { background: #d8a56a; box-shadow: 0 0 8px rgba(216, 165, 106, 0.7); }
+
+.dock-btn:disabled { opacity: 0.3; cursor: default; }
+.dock-btn:disabled:hover { background: transparent; color: rgba(238, 243, 244, 0.72); }
+html[data-service="closed"] #playBtn { display: none; }
+.ts-dot.idle { background: #d8a56a; box-shadow: none; opacity: 0.8; }
+
+/* The fleet board is still useful when nothing is running: it becomes the
+   first-departures board instead of three empty columns. */
+.fleet-closed {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1.05fr;
+  gap: 0 26px;
+  padding: 18px 2px 12px;
+}
+.fleet-closed-lead { min-width: 0; }
+.fleet-closed-kicker {
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: 7px; letter-spacing: 0.18em;
+  color: rgba(233, 195, 148, 0.9);
+}
+.fleet-closed-kicker i {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: #d8a56a; box-shadow: 0 0 8px rgba(216, 165, 106, 0.7);
+}
+.fleet-closed-title {
+  margin: 12px 0 15px;
+  font-size: 23px; font-weight: 300; letter-spacing: -0.035em; line-height: 1.22;
+  color: #f1f5f6;
+}
+.fleet-closed-title b { font-weight: 400; color: #f8fbfb; }
+.fleet-closed-count { display: flex; flex-direction: column; gap: 6px; }
+.fleet-closed-count b {
+  font-family: var(--mono); font-size: 30px; font-weight: 400;
+  letter-spacing: -0.035em; color: #f4f8f8;
+  font-variant-numeric: tabular-nums;
+}
+.fleet-closed-next {
+  min-width: 0;
+  padding-left: 26px;
+  border-left: 1px solid var(--line-soft);
+}
+.fleet-closed-next ul { list-style: none; margin: 5px 0 0; padding: 0; }
+.fleet-closed-next li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px; align-items: center;
+  padding: 12px 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-family: var(--mono);
+}
+.fleet-closed-next li:last-child { border-bottom: 0; }
+.fc-line {
+  min-width: 0;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 7px; letter-spacing: 0.15em;
+  color: rgba(240, 246, 247, 0.75);
+}
+.fc-line i {
+  width: 6px; height: 6px; border-radius: 50%; flex: none;
+  background: var(--c); box-shadow: 0 0 8px var(--c);
+}
+.fc-dest {
+  display: block;
+  margin-top: 5px;
+  font-size: 8px; letter-spacing: 0.04em;
+  color: rgba(235, 242, 243, 0.44);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fc-time {
+  font-size: 15px; letter-spacing: -0.02em;
+  color: #edf3f4; font-variant-numeric: tabular-nums;
+}
+@media (max-width: 860px) {
+  .closed-countdown-num { font-size: 34px; }
+  .closed-window-item b { font-size: 18px; }
+  .fleet-closed { grid-template-columns: 1fr; gap: 16px; padding: 15px 2px 8px; }
+  .fleet-closed-title { font-size: 21px; }
+  .fleet-closed-next {
+    padding-left: 0;
+    padding-top: 12px;
+    border-left: 0;
+    border-top: 1px solid var(--line-soft);
+  }
+  .fleet-closed-count b { font-size: 26px; }
 }

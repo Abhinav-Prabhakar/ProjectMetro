@@ -7,8 +7,8 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { makeConcrete, makeTrackbed, makeSteel } from './materials.js?v=20261106g';
-import { mergeGeometries } from './geomutil.js?v=20261106g';
+import { makeConcrete, makeTrackbed, makeSteel } from './materials.js?v=20261107a';
+import { mergeGeometries } from './geomutil.js?v=20261107a';
 
 export const GAUGE = 1.435;
 export const DECK_TOP = 10.4;

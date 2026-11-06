@@ -88,7 +88,7 @@
 <link rel="dns-prefetch" href="https://tiles.openfreemap.org" />
 <link rel="preload" href="assets/fonts/Inter-400.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="preload" href="assets/fonts/JetBrainsMono-400.woff2" as="font" type="font/woff2" crossorigin />
-<link rel="modulepreload" href="js/main.js?v=20261106g" />
+<link rel="modulepreload" href="js/main.js?v=20261107a" />
 
 <script type="application/ld+json">
 {
@@ -114,7 +114,7 @@
 </script>
 
 <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-<link rel="stylesheet" href="css/style.css?v=20261106g" />
+<link rel="stylesheet" href="css/style.css?v=20261107a" />
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.js" } }
 </script>
@@ -210,73 +210,139 @@
   </div>
 
   <aside class="journey glass">
-    <div class="card-head">
-      <span class="card-kicker">NEXT STATION</span>
-    </div>
+    <div class="view-live">
+      <div class="card-head">
+        <span class="card-kicker">NEXT STATION</span>
+      </div>
 
-    <div class="next-row">
-      <div class="next-seq" id="nextSeq">02 / 23</div>
-      <div class="next-main">
-        <h2 id="nextName">Uppal</h2>
-        <div class="next-meta" id="nextMeta">TOWARDS RAIDURG</div>
+      <div class="next-row">
+        <div class="next-seq" id="nextSeq">02 / 23</div>
+        <div class="next-main">
+          <h2 id="nextName">Uppal</h2>
+          <div class="next-meta" id="nextMeta">TOWARDS RAIDURG</div>
+        </div>
+      </div>
+
+      <div class="eta-row">
+        <div class="eta-block">
+          <span class="eta-num" id="etaVal">01:24</span>
+          <span class="eta-lab">ARRIVAL ETA</span>
+        </div>
+        <div class="eta-block right">
+          <span class="eta-num" id="distVal">1.03</span>
+          <span class="eta-lab">KM TO GO</span>
+        </div>
+      </div>
+
+      <div class="route-progress">
+        <div class="progress"><div class="progress-fill" id="progressFill"></div><div class="progress-dot" id="progressDot"></div></div>
+        <div class="progress-labels"><span id="prevName">Nagole</span><span id="nextLabel">Uppal</span></div>
+      </div>
+
+      <div class="upcoming">
+        <div class="up-head"><span>UPCOMING</span><span>ETA</span></div>
+        <ul id="upcomingList"></ul>
       </div>
     </div>
 
-    <div class="eta-row">
-      <div class="eta-block">
-        <span class="eta-num" id="etaVal">01:24</span>
-        <span class="eta-lab">ARRIVAL ETA</span>
+    <div class="view-closed">
+      <div class="card-head">
+        <span class="card-kicker">SERVICE STATUS</span>
+        <span class="closed-badge"><i></i>CLOSED</span>
       </div>
-      <div class="eta-block right">
-        <span class="eta-num" id="distVal">1.03</span>
-        <span class="eta-lab">KM TO GO</span>
+
+      <div class="closed-countdown">
+        <span class="closed-countdown-num" id="closedCountdown">05:51:30</span>
+        <span class="eta-lab">UNTIL FIRST TRAIN</span>
       </div>
-    </div>
 
-    <div class="route-progress">
-      <div class="progress"><div class="progress-fill" id="progressFill"></div><div class="progress-dot" id="progressDot"></div></div>
-      <div class="progress-labels"><span id="prevName">Nagole</span><span id="nextLabel">Uppal</span></div>
-    </div>
+      <div class="closed-window">
+        <div class="closed-window-item">
+          <span class="eta-lab">FIRST TRAIN</span>
+          <b id="closedFirst">06:00</b>
+        </div>
+        <div class="closed-window-item right">
+          <span class="eta-lab">LAST TRAIN</span>
+          <b id="closedLast">23:56</b>
+        </div>
+      </div>
 
-    <div class="upcoming">
-      <div class="up-head"><span>UPCOMING</span><span>ETA</span></div>
-      <ul id="upcomingList"></ul>
+      <div class="upcoming closed-upcoming">
+        <div class="up-head"><span>FIRST DEPARTURES</span><span>DEPARTS</span></div>
+        <ul id="closedDepartures"></ul>
+      </div>
     </div>
   </aside>
 
   <section class="telemetry glass">
-    <div class="card-head">
-      <span class="card-kicker">TELEMETRY</span>
-      <span class="card-tag mono" id="runTag">BLUE · D–M–D</span>
-    </div>
-
-    <div class="speed-row">
-      <div class="speed-block">
-        <span class="speed-num" id="speedVal">0</span>
-        <span class="speed-unit">KM/H</span>
+    <div class="view-live">
+      <div class="card-head">
+        <span class="card-kicker">TELEMETRY</span>
+        <span class="card-tag mono" id="runTag">BLUE · D–M–D</span>
       </div>
-      <div class="accel-block">
-        <span id="accelVal">+0.00</span>
-        <small>M/S² LONG.</small>
+
+      <div class="speed-row">
+        <div class="speed-block">
+          <span class="speed-num" id="speedVal">0</span>
+          <span class="speed-unit">KM/H</span>
+        </div>
+        <div class="accel-block">
+          <span id="accelVal">+0.00</span>
+          <small>M/S² LONG.</small>
+        </div>
+      </div>
+
+      <div class="accel-track"><div class="accel-fill" id="accelFill"></div><div class="accel-zero"></div></div>
+
+      <div class="metrics">
+        <div class="metric"><span>LATERAL</span><b id="latVal">0.00<em>g</em></b></div>
+        <div class="metric"><span>CURVE</span><b id="curveVal">STRAIGHT</b></div>
+        <div class="metric"><span>GRADE</span><b id="gradeVal">0.0<em>%</em></b></div>
+        <div class="metric"><span>TRACTION</span><b id="tractionVal">0<em>%</em></b></div>
+        <div class="metric"><span>DOORS</span><b id="doorsVal">CLOSED</b></div>
+        <div class="metric"><span>LOAD</span><b id="loadVal">0<em>%</em></b></div>
+        <div class="metric"><span>STATUS</span><b id="delayVal">ON TIME</b></div>
+        <div class="metric"><span>ODOMETER</span><b id="odoVal">0.00<em>km</em></b></div>
+      </div>
+
+      <div class="run-row">
+        <span id="runState">DWELL · DOORS OPEN</span>
+        <span class="run-speed">LIMIT 80 <em>KM/H</em></span>
       </div>
     </div>
 
-    <div class="accel-track"><div class="accel-fill" id="accelFill"></div><div class="accel-zero"></div></div>
+    <div class="view-closed">
+      <div class="card-head">
+        <span class="card-kicker">NETWORK</span>
+        <span class="card-tag mono closed-tag"><i></i>STANDBY</span>
+      </div>
 
-    <div class="metrics">
-      <div class="metric"><span>LATERAL</span><b id="latVal">0.00<em>g</em></b></div>
-      <div class="metric"><span>CURVE</span><b id="curveVal">STRAIGHT</b></div>
-      <div class="metric"><span>GRADE</span><b id="gradeVal">0.0<em>%</em></b></div>
-      <div class="metric"><span>TRACTION</span><b id="tractionVal">0<em>%</em></b></div>
-      <div class="metric"><span>DOORS</span><b id="doorsVal">CLOSED</b></div>
-      <div class="metric"><span>LOAD</span><b id="loadVal">0<em>%</em></b></div>
-      <div class="metric"><span>STATUS</span><b id="delayVal">ON TIME</b></div>
-      <div class="metric"><span>ODOMETER</span><b id="odoVal">0.00<em>km</em></b></div>
-    </div>
+      <div class="closed-fleet">
+        <div class="closed-fleet-block">
+          <span class="closed-fleet-num" id="closedFleetSize">57</span>
+          <span class="eta-lab">SETS STABLED</span>
+        </div>
+        <div class="closed-fleet-block right">
+          <span class="closed-fleet-num dim" id="closedInService">0</span>
+          <span class="eta-lab">IN SERVICE</span>
+        </div>
+      </div>
 
-    <div class="run-row">
-      <span id="runState">DWELL · DOORS OPEN</span>
-      <span class="run-speed">LIMIT 80 <em>KM/H</em></span>
+      <div class="metrics closed-metrics">
+        <div class="metric"><span>CORRIDORS</span><b id="closedLinesVal">3</b></div>
+        <div class="metric"><span>STATIONS</span><b id="closedStationsVal">57</b></div>
+        <div class="metric"><span>ROUTE</span><b id="closedLengthVal">64.6<em>km</em></b></div>
+        <div class="metric"><span>WINDOW</span><b id="closedWindowVal">17h 56m</b></div>
+        <div class="metric"><span>FIRST TRAIN</span><b id="closedFirstMetric">06:00</b></div>
+        <div class="metric"><span>LAST TRAIN</span><b id="closedLastMetric">23:56</b></div>
+        <div class="metric"><span>FORMATION</span><b>D–M–D</b></div>
+        <div class="metric"><span>STATUS</span><b class="warm">CLOSED</b></div>
+      </div>
+
+      <div class="run-row">
+        <span>ALL CORRIDORS · OUT OF SERVICE</span>
+        <span class="run-speed">REOPENS <em id="closedReopen">06:00</em></span>
+      </div>
     </div>
   </section>
 
@@ -284,7 +350,6 @@
 
   <nav class="dock glass" id="dock" aria-label="Network controls">
     <div class="dock-net">
-      <span class="dock-live"><i></i>LIVE</span>
       <div class="dock-figure">
         <b id="fleetTotal">0</b>
         <span>SETS<br/>IN SERVICE</span>
@@ -372,6 +437,6 @@
   <p class="notes-small">Timetable and station data © Hyderabad Metro Rail Ltd., July 2026 GTFS (Open Data Telangana). Satellite imagery © Esri, Maxar, Earthstar Geographics. 3D buildings © OpenFreeMap / OpenStreetMap contributors. An independent visual study, not an operational feed.</p>
 </div>
 
-<script type="module" src="js/main.js?v=20261106g"></script>
+<script type="module" src="js/main.js?v=20261107a"></script>
 </body>
 </html>

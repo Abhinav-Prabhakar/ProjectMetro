@@ -15,9 +15,9 @@ import {
   makeSteel,
   makeRoofPanel,
   makeSignTexture,
-} from './materials.js?v=20261106g';
-import { mergeGeometries } from './geomutil.js?v=20261106g';
-import { DECK_TOP } from './infrastructure.js?v=20261106g';
+} from './materials.js?v=20261107a';
+import { mergeGeometries } from './geomutil.js?v=20261107a';
+import { DECK_TOP } from './infrastructure.js?v=20261107a';
 
 const HALF_LEN = 72;
 const PLATFORM_IN = 3.72;

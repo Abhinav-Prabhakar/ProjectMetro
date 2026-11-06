@@ -540,11 +540,9 @@ function serviceSummary(svc) {
   const lines = [];
   for (const line of network.lines) {
     let firstTrip = null;
-    let lastTrip = null;
     for (const trip of line.trips) {
       if (trip.svc !== svc) continue;
       if (!firstTrip || trip.s0 < firstTrip.s0) firstTrip = trip;
-      if (!lastTrip || trip.s1 > lastTrip.s1) lastTrip = trip;
       if (trip.s0 < first) first = trip.s0;
       if (trip.s1 > last) last = trip.s1;
     }
@@ -1171,9 +1169,9 @@ function updateClosedHud(status) {
   if (!status || !status.closed) return;
 
   const openClock = fmtClock(status.openAt);
-  // Pair the first departure with the last arrival of the *same* upcoming
-  // service, so the window, the countdown and the "last train" all agree.
-  const lastClock = fmtClock(status.openAt + (status.open.last - status.open.first));
+  // The last arrival belongs to the service that just ended (yesterday if we
+  // are in the small hours), not to the upcoming one.
+  const lastClock = fmtClock(status.lastAt);
   const countdown = fmtCountdown(status.until);
 
   if (els.closedCountdown && els.closedCountdown.textContent !== countdown) {

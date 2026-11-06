@@ -544,9 +544,9 @@ function makeSideLivery(color = '#0a5fa8', { cabSign = 0, mirror = false } = {})
     g.save();
     g.lineCap = 'round';
     const stripes = [
-      [1.835, 5.2, '#12a150'],
-      [1.765, 7.0, '#e23227'],
-      [1.695, 8.2, '#0b5fae'],
+      [1.935, 12, '#12a150'],
+      [1.885, 6, '#e23227'],
+      [1.80, 24, '#0b5fae'],
     ];
     for (const [y, wdt, col] of stripes) {
       const y0 = Y(y);
@@ -778,255 +778,359 @@ function makeFrontTexture(color = '#0b5fae') {
   const yt = BODY_TOP;
   const X = (x) => ((x + xw / 2) / xw) * W;
   const Y = (y) => ((yt - y) / (yt - yb)) * H;
+  const uAt = (x) => x / (xw / 2);
+  const smooth = (a, b, x) => {
+    const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
 
   // silver base
   const base = g.createLinearGradient(0, 0, 0, H);
-  base.addColorStop(0, '#d6dbdc');
-  base.addColorStop(0.32, '#e8ecec');
-  base.addColorStop(0.72, '#dde2e3');
+  base.addColorStop(0, '#e9edee');
+  base.addColorStop(0.3, '#e2e7e8');
+  base.addColorStop(0.72, '#d8dedf');
   base.addColorStop(1, '#c2c8c9');
   g.fillStyle = base;
   g.fillRect(0, 0, W, H);
-  // faint brushing
-  for (let i = 0; i < 2600; i++) {
+  // brush grain
+  for (let i = 0; i < 1800; i++) {
     const v = Math.random() > 0.5 ? 255 : 60;
     g.fillStyle = `rgba(${v},${v},${v},${Math.random() * 0.025})`;
-    g.fillRect(Math.random() * W, Math.random() * H, 40 + Math.random() * 200, 1);
+    g.fillRect(Math.random() * W, Math.random() * H, 1, 12 + Math.random() * 90);
   }
 
-  // dark navy canopy — wraps the header and dives down the A-pillars
-  const canopy = g.createLinearGradient(0, 0, 0, Y(2.0));
-  canopy.addColorStop(0, '#0b1420');
-  canopy.addColorStop(0.6, '#10202c');
-  canopy.addColorStop(1, '#172b38');
+  // panel seams under the livery
+  g.strokeStyle = 'rgba(66,76,78,0.34)';
+  g.lineWidth = 1.8;
+  for (const x of [-0.95, -0.52, 0.52, 0.95]) {
+    g.beginPath();
+    g.moveTo(X(x), Y(2.24));
+    g.lineTo(X(x), Y(0.93));
+    g.stroke();
+  }
+  for (const y of [1.25, 1.04]) {
+    g.beginPath();
+    g.moveTo(X(-1.12), Y(y));
+    g.lineTo(X(1.12), Y(y));
+    g.stroke();
+  }
+  g.strokeStyle = 'rgba(255,255,255,0.24)';
+  for (const x of [-0.95, -0.52, 0.52, 0.95]) {
+    g.beginPath();
+    g.moveTo(X(x) + 1.8, Y(2.24));
+    g.lineTo(X(x) + 1.8, Y(0.93));
+    g.stroke();
+  }
+  // lower apron joint: a deep shadow line with a soft lip above it
+  g.fillStyle = 'rgba(52,62,66,0.34)';
+  g.fillRect(X(-1.12), Y(1.53), X(1.12) - X(-1.12), 2.6);
+  g.fillStyle = 'rgba(255,255,255,0.3)';
+  g.fillRect(X(-1.12), Y(1.545), X(1.12) - X(-1.12), 1.4);
+  const skirt = g.createLinearGradient(0, Y(1.5), 0, Y(0.92));
+  skirt.addColorStop(0, 'rgba(120,132,136,0)');
+  skirt.addColorStop(1, 'rgba(120,132,136,0.14)');
+  g.fillStyle = skirt;
+  g.fillRect(X(-1.12), Y(1.5), X(1.12) - X(-1.12), Y(0.92) - Y(1.5));
+
+  // dark navy canopy: across the header, then straight down the A-pillars
+  // outside the screen. The transition sits under the screen frame so the
+  // pillar reads as a continuous dark band down to the smile.
+  const canopyBottom = (x) => 3.16 - 1.03 * smooth(0.715, 0.758, Math.abs(uAt(x)));
+  const canopy = g.createLinearGradient(0, 0, 0, Y(2.05));
+  canopy.addColorStop(0, '#0a1420');
+  canopy.addColorStop(0.5, '#101f2b');
+  canopy.addColorStop(1, '#1a2c38');
   g.fillStyle = canopy;
   g.beginPath();
   g.moveTo(0, 0);
   g.lineTo(W, 0);
-  g.lineTo(W, Y(2.02));
-  g.bezierCurveTo(W * 0.975, Y(2.44), W * 0.958, Y(3.0), W * 0.90, Y(3.0));
-  g.lineTo(W * 0.10, Y(3.0));
-  g.bezierCurveTo(W * 0.042, Y(3.0), W * 0.025, Y(2.44), 0, Y(2.02));
+  for (let i = 160; i >= 0; i--) {
+    const x = -xw / 2 + (xw * i) / 160;
+    g.lineTo(X(x), Y(canopyBottom(x)));
+  }
   g.closePath();
   g.fill();
+  // broad sheen sweeping across the canopy top
+  g.save();
+  g.beginPath();
+  g.moveTo(0, 0);
+  g.lineTo(W, 0);
+  for (let i = 160; i >= 0; i--) {
+    const x = -xw / 2 + (xw * i) / 160;
+    g.lineTo(X(x), Y(canopyBottom(x)));
+  }
+  g.closePath();
+  g.clip();
+  g.globalCompositeOperation = 'lighter';
+  const sheen = g.createLinearGradient(0, 0, W, Y(2.4));
+  sheen.addColorStop(0, 'rgba(90,120,140,0)');
+  sheen.addColorStop(0.22, 'rgba(90,120,140,0.16)');
+  sheen.addColorStop(0.42, 'rgba(70,100,120,0.03)');
+  sheen.addColorStop(1, 'rgba(60,90,110,0.1)');
+  g.fillStyle = sheen;
+  g.fillRect(0, 0, W, Y(2.0));
+  g.restore();
 
-  // royal-blue A-pillar strips wrapping in from the side band
+  // leave a slim silver reveal outside the blue A-pillars
   for (const side of [-1, 1]) {
-    const ex = side < 0 ? -10 : W + 10;
-    const ix = side < 0 ? W * 0.052 : W * 0.948;
-    const gr = g.createLinearGradient(0, Y(3.62), 0, Y(1.66));
+    const xa = side * 1.302;
+    const xb = side * 1.31;
+    g.fillStyle = '#cdd3d4';
+    g.fillRect(Math.min(X(xa), X(xb)), Y(3.70), Math.abs(X(xb) - X(xa)), Y(2.10) - Y(3.70));
+  }
+
+  // royal-blue A-pillar strips wrapping in from the side band. They follow
+  // the canopy edge — wider at the header, tapering as they run down to the
+  // smile — so they read as trim rather than a painted bar, and the top
+  // corner is clipped by the face silhouette into a curved blue edge.
+  for (const side of [-1, 1]) {
+    const outer = side * 1.306;
+    const innerTop = side * 1.212;
+    const innerBot = side * 1.258;
+    const gr = g.createLinearGradient(X(innerTop), Y(3.66), X(outer), Y(2.1));
     gr.addColorStop(0, '#0d6fc8');
-    gr.addColorStop(0.5, color);
+    gr.addColorStop(0.55, color);
     gr.addColorStop(1, '#07518f');
     g.fillStyle = gr;
     g.beginPath();
-    g.moveTo(ex, Y(3.62));
-    g.lineTo(ix, Y(3.62));
-    g.lineTo(ix, Y(1.72));
-    g.quadraticCurveTo(ix, Y(1.66), ex, Y(1.66));
+    g.moveTo(X(outer), Y(3.70));
+    g.lineTo(X(outer), Y(2.14));
+    g.lineTo(X(innerBot), Y(2.14));
+    g.lineTo(X(innerTop), Y(3.70));
+    g.closePath();
+    g.fill();
+    // crisp inner edge
+    g.fillStyle = 'rgba(190,220,245,0.3)';
+    g.beginPath();
+    g.moveTo(X(innerTop), Y(3.62));
+    g.lineTo(X(innerBot), Y(2.16));
+    g.lineTo(X(innerBot + side * 0.007), Y(2.16));
+    g.lineTo(X(innerTop + side * 0.007), Y(3.62));
     g.closePath();
     g.fill();
   }
 
   // destination display recess (the emissive plane sits just proud of it)
-  g.fillStyle = '#070b0c';
-  roundRectPath(g, W * 0.345, Y(3.43), W * 0.31, Y(3.29) - Y(3.43), 6);
+  g.fillStyle = '#05090a';
+  roundRectPath(g, W * 0.36, Y(3.46), W * 0.28, Y(3.29) - Y(3.46), 7);
+  g.fill();
+  g.fillStyle = '#101619';
+  roundRectPath(g, W * 0.365, Y(3.445), W * 0.27, Y(3.30) - Y(3.445), 5);
   g.fill();
 
-  // windscreen — three panes in a heavy black frame, spanning nearly the
-  // full width so only a sliver of silver shows beside it
-  const x0t = W * 0.086;
-  const x1t = W * 0.914;
-  const x0b = W * 0.10;
-  const x1b = W * 0.90;
-  const wsTop = Y(3.02);
-  const wsBot = Y(1.98);
-  g.fillStyle = '#05090b';
-  g.lineJoin = 'round';
-  g.beginPath();
-  g.moveTo(x0t - 16, wsTop - 16);
-  g.lineTo(x1t + 16, wsTop - 16);
-  g.lineTo(x1b + 16, wsBot + 16);
-  g.lineTo(x0b - 16, wsBot + 16);
-  g.closePath();
-  g.fill();
-
-  // clip to a rounded screen aperture
-  g.save();
-  const wsPath = () => {
+  // upper red marker recesses
+  for (const sx of [-1, 1]) {
+    g.fillStyle = '#04080a';
     g.beginPath();
-    g.moveTo(x0t + 10, wsTop);
-    g.lineTo(x1t - 10, wsTop);
-    g.quadraticCurveTo(x1t, wsTop, x1t, wsTop + 18);
-    g.lineTo(x1b, wsBot - 18);
-    g.quadraticCurveTo(x1b, wsBot, x1b - 12, wsBot);
-    g.lineTo(x0b + 12, wsBot);
-    g.quadraticCurveTo(x0b, wsBot, x0b, wsBot - 18);
-    g.lineTo(x0t, wsTop + 18);
-    g.quadraticCurveTo(x0t, wsTop, x0t + 10, wsTop);
-    g.closePath();
-  };
-  wsPath();
-  g.clip();
-  const gl = g.createLinearGradient(x0t, wsTop, x1t, wsBot);
-  gl.addColorStop(0, '#2b4048');
-  gl.addColorStop(0.28, '#33494f');
-  gl.addColorStop(0.52, '#0d191d');
-  gl.addColorStop(0.78, '#081013');
-  gl.addColorStop(1, '#142126');
-  g.fillStyle = gl;
-  g.fillRect(0, wsTop, W, wsBot - wsTop);
-  // sky reflection
-  g.save();
-  g.globalCompositeOperation = 'lighter';
-  g.globalAlpha = 0.12;
-  g.fillStyle = '#cfe6f2';
-  g.beginPath();
-  g.moveTo(W * 0.13, wsTop);
-  g.lineTo(W * 0.32, wsTop);
-  g.lineTo(W * 0.20, wsBot);
-  g.lineTo(W * 0.09, wsBot);
-  g.closePath();
-  g.fill();
-  g.restore();
-  // wipers — one per pane
-  g.strokeStyle = 'rgba(6,9,10,0.92)';
-  g.lineWidth = 4;
-  for (const [a, b] of [[0.24, 0.16], [0.5, 0.5], [0.76, 0.84]]) {
+    g.arc(X(sx * 0.64), Y(3.395), W * 0.021, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = 'rgba(190,200,202,0.4)';
+    g.lineWidth = 2;
     g.beginPath();
-    g.moveTo(W * a, wsBot - 8);
-    g.lineTo(W * b, wsTop + 30);
+    g.arc(X(sx * 0.64), Y(3.395), W * 0.021, 0, Math.PI * 2);
     g.stroke();
+  }
+
+  // windscreen — three panes in a heavy black-navy frame
+  const sx0 = X(-0.94);
+  const sx1 = X(0.94);
+  const syT = Y(3.11);
+  const syB = Y(2.24);
+  g.fillStyle = '#050a0d';
+  roundRectPath(g, sx0 - 18, syT - 18, sx1 - sx0 + 36, syB - syT + 36, 26);
+  g.fill();
+  g.strokeStyle = 'rgba(174,188,192,0.22)';
+  g.lineWidth = 1.5;
+  roundRectPath(g, sx0 - 18, syT - 18, sx1 - sx0 + 36, syB - syT + 36, 26);
+  g.stroke();
+
+  const panes = [
+    [-0.94, -0.30],
+    [-0.25, 0.27],
+    [0.32, 0.94],
+  ];
+  for (const [a, b] of panes) {
+    const x0 = X(a) + 3;
+    const x1 = X(b) - 3;
+    const y0 = syT + 3;
+    const y1 = syB - 3;
+    g.save();
+    roundRectPath(g, x0, y0, x1 - x0, y1 - y0, 15);
+    g.clip();
+    const gl = g.createLinearGradient(x0, y0, x1, y1);
+    gl.addColorStop(0, '#3f555c');
+    gl.addColorStop(0.22, '#2d4148');
+    gl.addColorStop(0.48, '#142327');
+    gl.addColorStop(0.78, '#091114');
+    gl.addColorStop(1, '#1a272b');
+    g.fillStyle = gl;
+    g.fillRect(x0, y0, x1 - x0, y1 - y0);
+    // sky reflection
+    g.globalCompositeOperation = 'lighter';
+    g.globalAlpha = 0.14;
+    g.fillStyle = '#d4eaf5';
+    g.beginPath();
+    g.moveTo(x0 + (x1 - x0) * 0.1, y0);
+    g.lineTo(x0 + (x1 - x0) * 0.35, y0);
+    g.lineTo(x0 + (x1 - x0) * 0.18, y1);
+    g.lineTo(x0 + (x1 - x0) * 0.02, y1);
+    g.closePath();
+    g.fill();
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
+    // wiper, parked low across the pane
+    const pivotX = x0 + (x1 - x0) * 0.2;
+    const pivotY = y1 - 8;
+    const tipX = x0 + (x1 - x0) * 0.62;
+    const tipY = y1 - (y1 - y0) * 0.45;
+    g.strokeStyle = 'rgba(6,10,11,0.9)';
+    g.lineWidth = 4;
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(pivotX, pivotY);
+    g.lineTo(tipX, tipY);
+    g.stroke();
+    g.lineWidth = 7;
+    g.strokeStyle = 'rgba(10,14,15,0.8)';
+    g.beginPath();
+    g.moveTo(pivotX + (tipX - pivotX) * 0.45, pivotY + (tipY - pivotY) * 0.45);
+    g.lineTo(tipX, tipY);
+    g.stroke();
+    g.fillStyle = '#0a0f10';
+    g.beginPath();
+    g.arc(pivotX, pivotY, 6, 0, Math.PI * 2);
+    g.fill();
+    g.restore();
   }
   // heavy pillars between the three panes
-  for (const fx of [0.365, 0.635]) {
-    g.fillStyle = '#05090b';
-    g.fillRect(W * fx - 6, wsTop - 4, 12, wsBot - wsTop + 8);
-    g.fillStyle = 'rgba(150,168,172,0.22)';
-    g.fillRect(W * fx + 6, wsTop, 1.4, wsBot - wsTop);
+  for (const [a, b] of [[-0.30, -0.25], [0.27, 0.32]]) {
+    g.fillStyle = '#04080a';
+    g.fillRect(X(a), syT, X(b) - X(a), syB - syT);
+    g.fillStyle = 'rgba(160,178,182,0.18)';
+    g.fillRect(X(b) - 1.5, syT, 1.5, syB - syT);
   }
-  g.restore();
 
-  // the "smile": red over thick green over blue, dipping at the centre
-  const smileTop = (x) =>
-    Y(1.96) + (1 - Math.pow((x - W / 2) / (W / 2), 2)) * (Y(1.90) - Y(1.96));
+  // silver brow under the screen (carries the small roundel)
+  drawHmrMark(g, W * 0.5, Y(2.165), W * 0.014, { light: false, ring: false });
 
-  // blue nose band (carries the roundel and the headlamps)
-  const noseTop = (x) => smileTop(x) + 64;
-  const noseBot = Y(1.42);
-  const noseGrad = g.createLinearGradient(0, Y(1.9), 0, noseBot);
-  noseGrad.addColorStop(0, '#0d6fc8');
-  noseGrad.addColorStop(0.55, color);
-  noseGrad.addColorStop(1, '#07518f');
-  g.fillStyle = noseGrad;
-  g.beginPath();
-  for (let x = 0; x <= W; x += 8) {
-    const y = noseTop(x);
-    if (x === 0) g.moveTo(x, y);
-    else g.lineTo(x, y);
-  }
-  g.lineTo(W, noseBot);
-  g.lineTo(0, noseBot);
-  g.closePath();
+  // the "smile": green over red over blue, wrapping up at the corners
+  const f = (x) => smooth(0.50, 1.0, Math.abs(uAt(x)));
+  const greenTop = (x) => 2.10 + 0.06 * f(x);
+  const greenBot = (x) => 2.02 + 0.06 * f(x);
+  const redTop = (x) => 2.02 + 0.06 * f(x);
+  const redBot = (x) => 1.95 + 0.07 * f(x);
+  const blueTop = (x) => 1.95 + 0.07 * f(x);
+  const blueBot = (x) => 1.78 + 0.12 * f(x);
+  const bandPath = (top, bot) => {
+    g.beginPath();
+    for (let i = 0; i <= 160; i++) {
+      const x = -xw / 2 + (xw * i) / 160;
+      if (i === 0) g.moveTo(X(x), Y(top(x)));
+      else g.lineTo(X(x), Y(top(x)));
+    }
+    for (let i = 160; i >= 0; i--) {
+      const x = -xw / 2 + (xw * i) / 160;
+      g.lineTo(X(x), Y(bot(x)));
+    }
+    g.closePath();
+  };
+
+  // blue band
+  const blue = g.createLinearGradient(0, Y(2.05), 0, Y(1.7));
+  blue.addColorStop(0, '#0e74cf');
+  blue.addColorStop(0.5, color);
+  blue.addColorStop(1, '#064a83');
+  g.fillStyle = blue;
+  bandPath(blueTop, blueBot);
   g.fill();
 
-  // tricolour: thin red, thick green
-  const strokeSmile = (offset, width, stroke) => {
-    g.strokeStyle = stroke;
-    g.lineWidth = width;
-    g.lineCap = 'butt';
-    g.beginPath();
-    for (let x = -6; x <= W + 6; x += 8) {
-      const y = smileTop(x) + offset;
-      if (x === -6) g.moveTo(x, y);
-      else g.lineTo(x, y);
-    }
-    g.stroke();
-  };
-  strokeSmile(5, 10, '#e23227');
-  strokeSmile(41, 62, '#12a150');
+  // red band
+  g.fillStyle = '#e23227';
+  bandPath(redTop, redBot);
+  g.fill();
+
+  // green band
+  const green = g.createLinearGradient(0, Y(2.12), 0, Y(1.98));
+  green.addColorStop(0, '#17ad59');
+  green.addColorStop(1, '#0d8c45');
+  g.fillStyle = green;
+  bandPath(greenTop, greenBot);
+  g.fill();
+
   // crisp light edge along the top of the green
-  g.strokeStyle = 'rgba(255,255,255,0.28)';
-  g.lineWidth = 1.6;
+  g.strokeStyle = 'rgba(255,255,255,0.3)';
+  g.lineWidth = 1.5;
   g.beginPath();
-  for (let x = 0; x <= W; x += 8) {
-    const y = smileTop(x) + 10;
-    if (x === 0) g.moveTo(x, y);
-    else g.lineTo(x, y);
+  for (let i = 0; i <= 160; i++) {
+    const x = -xw / 2 + (xw * i) / 160;
+    const y = greenTop(x);
+    if (i === 0) g.moveTo(X(x), Y(y));
+    else g.lineTo(X(x), Y(y));
   }
   g.stroke();
 
-  // headlight housings (the 3D lamps sit over these)
+  // headlight recesses (the 3D lamps sit over these)
   for (const sx of [-1, 1]) {
-    const cx = W * (0.5 + sx * 0.30);
-    const cy = Y(1.53);
-    g.fillStyle = '#0a0e0f';
-    roundRectPath(g, cx - W * 0.056, cy - H * 0.027, W * 0.112, H * 0.054, 8);
+    const cx = X(sx * 0.965);
+    const cy = Y(1.92);
+    const hw = X(0.15) - X(-0.15);
+    const hh = Y(1.84) - Y(2.0);
+    g.fillStyle = '#070b0c';
+    roundRectPath(g, cx - hw / 2, cy - hh / 2, hw, hh, 7);
     g.fill();
-    g.fillStyle = '#1b2123';
-    roundRectPath(g, cx - W * 0.047, cy - H * 0.02, W * 0.094, H * 0.04, 6);
-    g.fill();
-    // red marker inboard
-    g.fillStyle = '#8c130d';
+    g.strokeStyle = 'rgba(176,188,192,0.32)';
+    g.lineWidth = 1.4;
+    roundRectPath(g, cx - hw / 2, cy - hh / 2, hw, hh, 7);
+    g.stroke();
+    g.fillStyle = '#0d1214';
     g.beginPath();
-    g.arc(cx + W * 0.049, cy, W * 0.011, 0, Math.PI * 2);
+    g.arc(cx - sx * 0.075 * W / xw, cy, W * 0.026, 0, Math.PI * 2);
+    g.fill();
+    g.beginPath();
+    g.arc(cx + sx * 0.07 * W / xw, cy, W * 0.022, 0, Math.PI * 2);
     g.fill();
   }
 
-  // HMR roundel in the blue nose band
-  drawHmrMark(g, W * 0.5, Y(1.575), W * 0.036, { light: true });
-  // small crest at the base of the screen
-  drawHmrMark(g, W * 0.5, Y(1.93), W * 0.014, { light: false, ring: false });
-
-  // upper marker lamps are 3D (see buildNose)
+  // HMR roundel on the blue band
+  drawHmrMark(g, W * 0.5, Y(1.86), W * 0.030, { light: true });
 
   // lower valance shadow and coupler recess
-  const valance = g.createLinearGradient(0, Y(1.34), 0, H);
-  valance.addColorStop(0, 'rgba(90,98,99,0)');
-  valance.addColorStop(1, 'rgba(54,60,61,0.62)');
+  const valance = g.createLinearGradient(0, Y(1.28), 0, H);
+  valance.addColorStop(0, 'rgba(86,98,104,0)');
+  valance.addColorStop(0.7, 'rgba(62,74,80,0.34)');
+  valance.addColorStop(1, 'rgba(44,54,60,0.7)');
   g.fillStyle = valance;
-  g.fillRect(0, Y(1.34), W, H - Y(1.34));
-  g.fillStyle = '#0a0d0e';
-  roundRectPath(g, W * 0.415, Y(1.16), W * 0.17, H * 0.048, 8);
+  g.fillRect(0, Y(1.28), W, H - Y(1.28));
+  g.fillStyle = 'rgba(255,255,255,0.2)';
+  g.fillRect(0, Y(1.24), W, 2);
+  g.fillStyle = '#070b0c';
+  roundRectPath(g, W * 0.405, Y(1.18), W * 0.19, Y(0.97) - Y(1.18), 8);
   g.fill();
-  g.fillStyle = '#121718';
-  roundRectPath(g, W * 0.428, Y(1.15), W * 0.144, H * 0.036, 6);
+  g.fillStyle = '#111719';
+  roundRectPath(g, W * 0.418, Y(1.165), W * 0.164, Y(0.99) - Y(1.165), 6);
   g.fill();
-  // lower seams and corner boxes
-  g.strokeStyle = 'rgba(70,80,82,0.25)';
-  g.lineWidth = 2;
-  for (const fx of [0.245, 0.755]) {
-    g.beginPath();
-    g.moveTo(W * fx, Y(1.4));
-    g.lineTo(W * fx, H);
-    g.stroke();
-  }
-  g.strokeStyle = 'rgba(70,80,82,0.2)';
-  g.beginPath();
-  g.moveTo(W * 0.17, Y(1.27));
-  g.lineTo(W * 0.83, Y(1.27));
-  g.stroke();
   for (const sx of [-1, 1]) {
-    g.fillStyle = '#0c1011';
-    roundRectPath(g, W * (0.5 + sx * 0.33) - W * 0.035, Y(1.155), W * 0.07, H * 0.034, 4);
+    g.fillStyle = '#0b0f10';
+    roundRectPath(g, W * (0.5 + sx * 0.34) - W * 0.045, Y(1.04), W * 0.09, Y(0.92) - Y(1.04), 4);
     g.fill();
   }
   // unit number
   g.fillStyle = 'rgba(55,62,64,0.6)';
-  g.font = '600 16px "JetBrains Mono", monospace';
+  g.font = '600 15px "JetBrains Mono", monospace';
   g.textAlign = 'right';
-  g.fillText('HMR 03', W * 0.95, H * 0.97);
+  g.fillText('HMR 03', W * 0.95, H * 0.965);
 
   // weathering
-  for (let i = 0; i < 160; i++) {
+  for (let i = 0; i < 150; i++) {
     g.fillStyle = `rgba(38,40,38,${Math.random() * 0.03})`;
-    g.fillRect(Math.random() * W, Y(1.0 + Math.random() * 0.3), 1 + Math.random() * 7, 2 + Math.random() * 18);
+    g.fillRect(Math.random() * W, Y(0.95 + Math.random() * 0.35), 1 + Math.random() * 6, 2 + Math.random() * 14);
   }
   return c;
 }
 
-// The short side panel that wraps the nose: blue band sweeping down into the
-// front face, tricolour climbing around the corner.
+// The short side panel that wraps the nose: the flank livery continues round
+// the corner, with the windscreen glass and blue A-pillar trim turning in at
+// the leading edge so it meets the front face seamlessly.
 function makeNoseSideTexture(color = '#0b5fae') {
   const W = 512;
   const H = 512;
@@ -1053,85 +1157,125 @@ function makeNoseSideTexture(color = '#0b5fae') {
     g.fillRect(0, y + 1, W, 1);
   }
 
-  // dark navy canopy — only over the top shoulder, fading toward the body
-  {
-    const canopy = canvas2d(W, H);
-    const cg = canopy.getContext('2d');
-    const vg = cg.createLinearGradient(0, 0, 0, H * 0.46);
-    vg.addColorStop(0, 'rgba(14,25,34,1)');
-    vg.addColorStop(0.6, 'rgba(14,25,34,0.85)');
-    vg.addColorStop(1, 'rgba(14,25,34,0)');
-    cg.fillStyle = vg;
-    cg.fillRect(0, 0, W, H);
-    const hg = cg.createLinearGradient(0, 0, W, 0);
-    hg.addColorStop(0, 'rgba(0,0,0,0)');
-    hg.addColorStop(0.28, 'rgba(0,0,0,0)');
-    hg.addColorStop(0.7, 'rgba(0,0,0,0.95)');
-    hg.addColorStop(1, 'rgba(0,0,0,1)');
-    cg.globalCompositeOperation = 'destination-in';
-    cg.fillStyle = hg;
-    cg.fillRect(0, 0, W, H);
-    g.drawImage(canopy, 0, 0);
-  }
+  // Cantrail band: the royal-blue stripe from the flank runs at full height
+  // along the whole nose; the roof shoulder continues it over the curve.
+  const cantBot = 3.19;
+  const cantTop = 3.64;
+  const cant = g.createLinearGradient(0, Y(cantTop), 0, Y(cantBot));
+  cant.addColorStop(0, '#0d6fc8');
+  cant.addColorStop(0.55, color);
+  cant.addColorStop(1, '#07518f');
+  g.fillStyle = cant;
+  g.fillRect(0, Y(cantTop), W, Y(cantBot) - Y(cantTop));
+  g.fillStyle = 'rgba(190,220,245,0.3)';
+  g.fillRect(0, Y(cantTop), W, 1.5);
 
-  // royal-blue cantrail band, sweeping down the nose to the front corner
-  const topAt = (u) => BLUE_TOP + (1.80 - BLUE_TOP) * Math.pow(u, 1.3);
-  const botAt = (u) => BLUE_BOTTOM + (1.42 - BLUE_BOTTOM) * Math.pow(u, 1.3);
-  const band = g.createLinearGradient(0, Y(BLUE_TOP), 0, Y(1.42));
-  band.addColorStop(0, '#0d6fc8');
-  band.addColorStop(0.5, color);
-  band.addColorStop(1, '#085394');
-  g.fillStyle = band;
+  // Windscreen / A-pillar wrap.  The screen faces forward, so only the
+  // leading tenth of the side panel turns dark; its raked rear edge gets the
+  // thin blue trim that continues up the front face's A-pillar.
+  const uBack = (y) => 0.74 + (3.37 - y) * 0.13;
+  const glassPath = () => {
+    g.beginPath();
+    g.moveTo(uBack(3.37) * W, Y(3.37));
+    g.lineTo(W, Y(3.37));
+    g.lineTo(W, Y(2.16));
+    g.lineTo(uBack(2.16) * W, Y(2.16));
+    g.quadraticCurveTo(uBack(2.72) * W + 6, Y(2.72), uBack(3.37) * W, Y(3.37));
+    g.closePath();
+  };
+  const glass = g.createLinearGradient(0, Y(3.3), W * 0.35, Y(2.2));
+  glass.addColorStop(0, '#0a1219');
+  glass.addColorStop(0.45, '#101e28');
+  glass.addColorStop(0.75, '#16262f');
+  glass.addColorStop(1, '#22333b');
+  g.fillStyle = glass;
+  glassPath();
+  g.fill();
+  // soft sky reflection down the wrap
+  g.save();
+  glassPath();
+  g.clip();
+  g.globalCompositeOperation = 'lighter';
+  g.globalAlpha = 0.11;
+  g.fillStyle = '#cfe6f2';
+  g.beginPath();
+  g.moveTo(W * 0.80, Y(3.37));
+  g.lineTo(W * 0.90, Y(3.37));
+  g.lineTo(W * 0.80, Y(2.16));
+  g.lineTo(W * 0.73, Y(2.16));
+  g.closePath();
+  g.fill();
+  g.restore();
+  // blue trim along the raked rear edge
+  g.strokeStyle = color;
+  g.lineWidth = 16;
+  g.lineCap = 'round';
+  g.beginPath();
+  g.moveTo(uBack(3.37) * W, Y(3.37));
+  g.quadraticCurveTo(uBack(2.72) * W + 6, Y(2.72), uBack(2.16) * W, Y(2.16));
+  g.stroke();
+  g.strokeStyle = 'rgba(180,215,240,0.4)';
+  g.lineWidth = 2;
+  g.stroke();
+
+  // Tricolour waist stripe: flush with the flank livery along the body, then
+  // a gentle lift at the nose so it meets the front face "smile".
+  const s = (u) => smooth(0.62, 1.0, u);
+  const bandPath = (top, bot) => {
+    g.beginPath();
+    for (let i = 0; i <= 64; i++) {
+      const u = i / 64;
+      if (i === 0) g.moveTo(u * W, Y(top(u)));
+      else g.lineTo(u * W, Y(top(u)));
+    }
+    for (let i = 64; i >= 0; i--) {
+      const u = i / 64;
+      g.lineTo(u * W, Y(bot(u)));
+    }
+    g.closePath();
+  };
+  const greenTop = (u) => 1.968 + 0.192 * s(u);
+  const greenBot = (u) => 1.902 + 0.178 * s(u);
+  const redTop = (u) => 1.902 + 0.178 * s(u);
+  const redBot = (u) => 1.868 + 0.152 * s(u);
+  const blueTop = (u) => 1.868 + 0.152 * s(u);
+  const blueBot = (u) => 1.734 + 0.166 * s(u);
+
+  g.fillStyle = '#0b5fae';
+  bandPath(blueTop, blueBot);
+  g.fill();
+  g.fillStyle = '#e23227';
+  bandPath(redTop, redBot);
+  g.fill();
+  const green = g.createLinearGradient(0, Y(2.18), 0, Y(1.85));
+  green.addColorStop(0, '#17ad59');
+  green.addColorStop(1, '#0d8c45');
+  g.fillStyle = green;
+  bandPath(greenTop, greenBot);
+  g.fill();
+  g.strokeStyle = 'rgba(255,255,255,0.28)';
+  g.lineWidth = 1.2;
   g.beginPath();
   for (let i = 0; i <= 64; i++) {
     const u = i / 64;
-    const x = u * W;
-    const y = Y(topAt(u));
-    if (i === 0) g.moveTo(x, y);
-    else g.lineTo(x, y);
+    if (i === 0) g.moveTo(u * W, Y(greenTop(u)));
+    else g.lineTo(u * W, Y(greenTop(u)));
   }
-  for (let i = 64; i >= 0; i--) {
-    const u = i / 64;
-    g.lineTo(u * W, Y(botAt(u)));
-  }
-  g.closePath();
-  g.fill();
-  g.fillStyle = 'rgba(255,255,255,0.4)';
-  g.fillRect(0, Y(BLUE_BOTTOM) - 2, W * 0.3, 1.2);
+  g.stroke();
 
-  // tricolour sweeping up around the nose (green over red over blue)
-  g.lineCap = 'butt';
-  const stripes = [
-    [1.835, 1.87, '#12a150', 5.2, 8.0],
-    [1.765, 1.79, '#e23227', 7.0, 9.5],
-    [1.695, 1.71, '#0b5fae', 8.2, 10.5],
-  ];
-  for (const [y0, y1, col, w0, w1] of stripes) {
-    g.strokeStyle = col;
-    const steps = 32;
-    for (let i = 0; i < steps; i++) {
-      const u = i / steps;
-      const x = u * W;
-      g.lineWidth = w0 + (w1 - w0) * u;
-      g.beginPath();
-      const tt = Math.pow(u, 1.3);
-      g.moveTo(x, Y(y0 + (y1 - y0) * tt));
-      g.lineTo(x + W / steps + 1, Y(y0 + (y1 - y0) * Math.pow(Math.min(1, u + 1 / steps), 1.3)));
-      g.stroke();
-    }
-  }
-
-  // shut line at the back edge
+  // shut line at the body edge and a dark leading-edge shadow
   g.fillStyle = 'rgba(70,80,82,0.25)';
   g.fillRect(0, 0, 2, H);
   g.fillStyle = 'rgba(255,255,255,0.2)';
   g.fillRect(2, 0, 1, H);
+  g.fillStyle = 'rgba(20,26,30,0.28)';
+  g.fillRect(W - 2, Y(3.62), 2, Y(2.16) - Y(3.62));
   return c;
 }
 
-// Roof shoulder strip: stainless at the body, blending into the dark navy
-// canopy toward the windscreen, with the tail of the cantrail band wrapping
-// over the curve.
+// Roof shoulder strip: the silver roof crown stays silver, while the curved
+// shoulder carries the blue cantrail band from the body, tapering into a thin
+// trim as the dark navy canopy opens out over the nose.
 function makeNoseRoofTexture(color = '#0b5fae') {
   const W = 512;
   const H = 128;
@@ -1147,27 +1291,65 @@ function makeNoseRoofTexture(color = '#0b5fae') {
   base.addColorStop(1, '#eef2f2');
   g.fillStyle = base;
   g.fillRect(0, 0, W, H);
-  // canopy blend: silver at the body, dark at the front
-  const hg = g.createLinearGradient(0, 0, W, 0);
-  hg.addColorStop(0, 'rgba(14,25,34,0)');
-  hg.addColorStop(0.22, 'rgba(14,25,34,0)');
-  hg.addColorStop(0.72, 'rgba(14,25,34,0.98)');
-  hg.addColorStop(1, 'rgba(14,25,34,1)');
-  g.fillStyle = hg;
-  g.fillRect(0, 0, W, H);
-  // blue band tail across the lower shoulder, fading toward the front
-  const blue = g.createLinearGradient(0, H, 0, H * 0.35);
-  blue.addColorStop(0, '#0d6fc8');
-  blue.addColorStop(0.55, color);
-  blue.addColorStop(1, 'rgba(8,83,148,0)');
-  g.fillStyle = blue;
+  // faint longitudinal grain along the roof shoulder
+  for (let y = 3; y < H; y += 6) {
+    g.fillStyle = 'rgba(255,255,255,0.12)';
+    g.fillRect(0, y, W, 1);
+    g.fillStyle = 'rgba(66,76,78,0.08)';
+    g.fillRect(0, y + 1, W, 1);
+  }
+
+  // v = 0 is the side edge (canvas bottom); v = 1 is the roof crown.
+  // The blue cantrail wraps the shoulder at the body; toward the nose the
+  // dark canopy opens out over the roof, leaving the blue as a thin trim.
+  const blueV = (u) => 0.78 - 0.70 * smooth(0.10, 0.82, u);
+  const darkV = (u) => blueV(u) + (0.97 - blueV(u)) * smooth(0.28, 0.90, u);
+  const yOf = (v) => H * (1 - v);
+
+  // dark canopy above the blue trim
+  g.fillStyle = '#0c1721';
   g.beginPath();
-  g.moveTo(0, H);
-  g.lineTo(0, H * 0.28);
-  g.quadraticCurveTo(W * 0.28, H * 0.3, W * 0.52, H * 0.78);
-  g.lineTo(W * 0.52, H);
+  for (let i = 0; i <= 96; i++) {
+    const u = i / 96;
+    const y = yOf(darkV(u));
+    if (i === 0) g.moveTo(u * W, y);
+    else g.lineTo(u * W, y);
+  }
+  for (let i = 96; i >= 0; i--) {
+    const u = i / 96;
+    g.lineTo(u * W, yOf(blueV(u)));
+  }
   g.closePath();
   g.fill();
+
+  // blue cantrail band / nose trim
+  const blue = g.createLinearGradient(0, H, 0, 0);
+  blue.addColorStop(0, '#0d6fc8');
+  blue.addColorStop(0.55, color);
+  blue.addColorStop(1, '#085394');
+  g.fillStyle = blue;
+  g.beginPath();
+  for (let i = 0; i <= 96; i++) {
+    const u = i / 96;
+    if (i === 0) g.moveTo(u * W, H);
+    else g.lineTo(u * W, H);
+  }
+  for (let i = 96; i >= 0; i--) {
+    const u = i / 96;
+    g.lineTo(u * W, yOf(blueV(u)));
+  }
+  g.closePath();
+  g.fill();
+  // silver beading between the blue and the dark canopy
+  g.strokeStyle = 'rgba(205,218,220,0.45)';
+  g.lineWidth = 1.4;
+  g.beginPath();
+  for (let i = 0; i <= 96; i++) {
+    const u = i / 96;
+    if (i === 0) g.moveTo(u * W, yOf(blueV(u)));
+    else g.lineTo(u * W, yOf(blueV(u)));
+  }
+  g.stroke();
   return c;
 }
 
@@ -1189,6 +1371,27 @@ function roundedShape(w, h, r) {
   s.quadraticCurveTo(x, y + h, x, y + h - rr);
   s.lineTo(x, y + rr);
   s.quadraticCurveTo(x, y, x + rr, y);
+  s.closePath();
+  return s;
+}
+
+// Front-face outline: heavily rounded at the roof, much squarer at the
+// bottom so the lower apron keeps the body's full width like the reference.
+function roundedShapeTB(w, h, rTop, rBot) {
+  const s = new THREE.Shape();
+  const x = -w / 2;
+  const y = -h / 2;
+  const rt = Math.min(rTop, w / 2, h);
+  const rb = Math.min(rBot, w / 2, h);
+  s.moveTo(x + rb, y);
+  s.lineTo(x + w - rb, y);
+  s.quadraticCurveTo(x + w, y, x + w, y + rb);
+  s.lineTo(x + w, y + h - rt);
+  s.quadraticCurveTo(x + w, y + h, x + w - rt, y + h);
+  s.lineTo(x + rt, y + h);
+  s.quadraticCurveTo(x, y + h, x, y + h - rt);
+  s.lineTo(x, y + rb);
+  s.quadraticCurveTo(x, y, x + rb, y);
   s.closePath();
   return s;
 }
@@ -1238,29 +1441,34 @@ function beamBetween(mat, a, b, radius = 0.03, segments = 8) {
 function buildNose(materials, frontMat, noseSideMat, noseRoofMat, textureData) {
   const group = new THREE.Group();
   const length = CAR_TIP - BODY_HALF; // 1.1 m
-  const rings = 7;
-  const sideCols = 7;   // across the flank height
-  const roofCols = 8;   // across the roof shoulder
+  const rings = 10;
+  const sideCols = 9;   // across the flank height
+  const roofCols = 10;  // across the roof shoulder
   const sections = [];
 
-  // parametric ring
+  // parametric ring. The nose stays bluff (only a small width taper) and the
+  // bottom follows the body so the front apron reaches the skirt.
   for (let i = 0; i < rings; i++) {
     const t = i / (rings - 1);
-    const s = t * t * (3 - 2 * t); // smoothstep
-    const w = 1.45 * (1 - 0.13 * Math.pow(t, 1.5));
-    const yb = BODY_BOTTOM + 0.18 * Math.pow(t, 1.6);
-    const yt = BODY_TOP - 0.09 * Math.pow(t, 1.4);
-    const r = 0.35 * (1 - 0.18 * t);
+    const w = 1.45 * (1 - 0.0966 * Math.pow(t, 1.4));
+    const yb = BODY_BOTTOM + 0.02 * Math.pow(t, 1.2);
+    const yt = BODY_TOP - 0.06 * Math.pow(t, 1.4);
+    const r = 0.35 * (1 - 0.12 * t);
     const z = BODY_HALF + length * t;
     sections.push({ t, w, yb, yt, r, z });
   }
 
-  const rake = 0.48;
-  const bulge = 0.03;
+  const rake = 0.44;
+  const bulge = 0.02;
+  const planRound = 0.30;
   const zAt = (sec, y, x) => {
     const yn = (y - sec.yb) / (sec.yt - sec.yb);
     const xn = Math.min(1, Math.abs(x) / sec.w);
-    return sec.z - rake * (sec.t * sec.t) * yn + bulge * (1 - xn * xn) * Math.pow(sec.t, 3);
+    // Round the nose in plan view: the centre stays proud while the corners
+    // fall away, so the flat face blends into the flanks instead of ending
+    // in a hard vertical crease.
+    const corner = planRound * Math.pow(sec.t, 2) * (1 - Math.sqrt(Math.max(0, 1 - xn * xn)));
+    return sec.z - rake * (sec.t * sec.t) * yn + bulge * (1 - xn * xn) * Math.pow(sec.t, 3) - corner;
   };
 
   // --- side surfaces (right and left) ---
@@ -1372,7 +1580,7 @@ function buildNose(materials, frontMat, noseSideMat, noseRoofMat, textureData) {
   const fxw = last.w;
   const fyb = last.yb;
   const fyt = last.yt;
-  const frontShape = roundedShape(2 * fxw, fyt - fyb, 0.42);
+  const frontShape = roundedShapeTB(2 * fxw, fyt - fyb, 0.46, 0.16);
   const frontGeom = new THREE.ShapeGeometry(frontShape, 22);
   const fpos = frontGeom.attributes.position;
   const fuv = frontGeom.attributes.uv;
@@ -1393,29 +1601,14 @@ function buildNose(materials, frontMat, noseSideMat, noseRoofMat, textureData) {
   const faceZ = (x, y) => zAt(last, y, x);
 
   // --- 3D overlays ---
-  const zc = faceZ(0, 2.86);
-
-  // wipers
-  for (const sx of [-1, 1]) {
-    const arm = new THREE.Group();
-    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.66, 6), materials.rubber);
-    rod.rotation.z = Math.PI / 2;
-    rod.position.x = 0.3;
-    arm.add(rod);
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.018, 0.03), materials.rubber);
-    blade.position.set(0.4, 0.02, 0.01);
-    arm.add(blade);
-    arm.position.set(sx * 0.18, 2.52, zc + 0.03);
-    arm.rotation.z = sx > 0 ? -0.18 : 0.18;
-    arm.rotation.y = sx > 0 ? -0.12 : 0.12;
-    group.add(arm);
-  }
+  // (the wipers are painted into the front texture, parked at the base of
+  // each pane — 3D arms at this scale read as crane jibs across the glass)
 
   const glowMat = new THREE.MeshBasicMaterial({
     map: textureData.glow,
     color: 0xfff2d8,
     transparent: true,
-    opacity: 0.22,
+    opacity: 0.16,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     toneMapped: false,
@@ -1425,7 +1618,7 @@ function buildNose(materials, frontMat, noseSideMat, noseRoofMat, textureData) {
     map: textureData.glow,
     color: 0xffe7b4,
     transparent: true,
-    opacity: 0.06,
+    opacity: 0.045,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     toneMapped: false,
@@ -1434,52 +1627,79 @@ function buildNose(materials, frontMat, noseSideMat, noseRoofMat, textureData) {
 
   const headlights = [];
   for (const sx of [-1, 1]) {
-    const hx = sx * 0.80;
-    const hy = 1.53;
+    const hx = sx * 0.965;
+    const hy = 1.92;
     const hz = faceZ(hx, hy);
-    const housing = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.14, 0.05), materials.lightHousing);
-    housing.position.set(hx, hy, hz + 0.008);
+    const housing = new THREE.Mesh(new RoundedBoxGeometry(0.305, 0.145, 0.04, 3, 0.02), materials.lightHousing);
+    housing.position.set(hx, hy, hz + 0.03);
     group.add(housing);
+    const bezel = new THREE.Mesh(new RoundedBoxGeometry(0.268, 0.112, 0.016, 2, 0.028), materials.rim);
+    bezel.position.set(hx, hy, hz + 0.052);
+    group.add(bezel);
+    // inboard white projector
     const lampMat = new THREE.MeshStandardMaterial({
       color: 0xf7f9f3,
       emissive: 0xfff3dc,
-      emissiveIntensity: 3.2,
-      roughness: 0.18,
+      emissiveIntensity: 2.1,
+      roughness: 0.26,
       metalness: 0.1,
     });
-    const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.058, 0.03, 20), lampMat);
+    const lampX = hx - sx * 0.075;
+    const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.041, 0.041, 0.022, 22), lampMat);
     lamp.rotation.x = Math.PI / 2;
-    lamp.position.set(hx + sx * 0.045, hy, hz + 0.04);
+    lamp.position.set(lampX, hy, hz + 0.063);
     group.add(lamp);
-    const barMat = new THREE.MeshStandardMaterial({
-      color: 0xf6faf8,
-      emissive: 0xdff4ff,
-      emissiveIntensity: 2.6,
-      roughness: 0.2,
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.007, 6, 22), materials.rim);
+    ring.position.set(lampX, hy, hz + 0.064);
+    group.add(ring);
+    // outboard red marker lens
+    const markerMat = new THREE.MeshStandardMaterial({
+      color: 0x74100c,
+      emissive: 0xff2a1c,
+      emissiveIntensity: 1.1,
+      roughness: 0.24,
     });
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.038, 0.025), barMat);
-    bar.position.set(hx - sx * 0.075, hy, hz + 0.04);
-    group.add(bar);
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.7), glowMat);
+    const marker = new THREE.Mesh(new THREE.CylinderGeometry(0.029, 0.029, 0.018, 18), markerMat);
+    marker.rotation.x = Math.PI / 2;
+    marker.position.set(hx + sx * 0.078, hy, hz + 0.063);
+    group.add(marker);
+    // slim daytime running strip under the projector
+    const drlMat = new THREE.MeshStandardMaterial({
+      color: 0xe8f2f4,
+      emissive: 0xfff3dc,
+      emissiveIntensity: 1.0,
+      roughness: 0.28,
+    });
+    const drl = new THREE.Mesh(new THREE.BoxGeometry(0.072, 0.016, 0.012), drlMat);
+    drl.position.set(lampX, hy - 0.05, hz + 0.063);
+    group.add(drl);
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), glowMat);
     glow.renderOrder = 6;
-    glow.position.set(hx, hy, hz + 0.05);
+    glow.position.set(lampX, hy, hz + 0.075);
     group.add(glow);
-    const halo = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.7), haloMat);
+    const halo = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 1.25), haloMat);
     halo.renderOrder = 5;
-    halo.position.set(hx, hy, hz + 0.03);
+    halo.position.set(lampX, hy, hz + 0.05);
     group.add(halo);
-    headlights.push({ lampMat, barMat, glowMat, haloMat, head: false });
+    headlights.push({ lampMat, markerMat, drlMat, glowMat, haloMat, head: false });
   }
 
-  // upper red markers
+  // upper red markers in chrome bezels
   for (const sx of [-1, 1]) {
-    const m = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.038, 0.038, 0.018, 14),
-      new THREE.MeshStandardMaterial({ color: 0x5a0e0b, emissive: 0xff2a1c, emissiveIntensity: 2.4, roughness: 0.3 })
+    const mx = sx * 0.64;
+    const my = 3.395;
+    const mz = faceZ(mx, my);
+    const bezel = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.02, 18), materials.lightHousing);
+    bezel.rotation.x = Math.PI / 2;
+    bezel.position.set(mx, my, mz + 0.01);
+    group.add(bezel);
+    const lens = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.034, 0.034, 0.018, 18),
+      new THREE.MeshStandardMaterial({ color: 0x5a0e0b, emissive: 0xff2a1c, emissiveIntensity: 1.9, roughness: 0.25 })
     );
-    m.rotation.x = Math.PI / 2;
-    m.position.set(sx * 0.62, 3.35, faceZ(sx * 0.62, 3.35) + 0.02);
-    group.add(m);
+    lens.rotation.x = Math.PI / 2;
+    lens.position.set(mx, my, mz + 0.023);
+    group.add(lens);
   }
 
   // destination display
@@ -1491,8 +1711,8 @@ function buildNose(materials, frontMat, noseSideMat, noseRoofMat, textureData) {
     roughness: 0.35,
     metalness: 0.1,
   });
-  const dest = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.1), destMat);
-  dest.position.set(0, 3.36, faceZ(0, 3.36) + 0.022);
+  const dest = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.1), destMat);
+  dest.position.set(0, 3.375, faceZ(0, 3.375) + 0.022);
   group.add(dest);
 
   // coupler
@@ -1530,7 +1750,7 @@ function buildNose(materials, frontMat, noseSideMat, noseRoofMat, textureData) {
     face.rotation.y = -sx * Math.PI / 2;
     face.position.set(sx * 0.196, 0.02, 0);
     mirror.add(face);
-    mirror.position.set(sx * 1.47, 2.88, BODY_HALF - 0.42);
+    mirror.position.set(sx * 1.43, 3.06, BODY_HALF - 0.38);
     group.add(mirror);
   }
 
@@ -2349,21 +2569,27 @@ export function createTrain({ anisotropy = 8, color = '#0b5fae' } = {}) {
     for (const light of cab.headlights) {
       light.head = head;
       light.lampMat.emissive.setHex(head ? 0xfff3dc : tail ? 0xff1a12 : 0x0a0a0a);
-      light.lampMat.emissiveIntensity = head ? 3.8 : tail ? 3.0 : 0;
-      light.barMat.emissive.setHex(head ? 0xdff4ff : tail ? 0x9b0d08 : 0x050505);
-      light.barMat.emissiveIntensity = head ? 3.2 : tail ? 0.8 : 0;
+      light.lampMat.emissiveIntensity = head ? 3.0 : tail ? 2.2 : 0;
+      if (light.markerMat) {
+        light.markerMat.emissive.setHex(0xff2a1c);
+        light.markerMat.emissiveIntensity = head ? 1.1 : tail ? 2.6 : 0.4;
+      }
+      if (light.drlMat) {
+        light.drlMat.emissive.setHex(head ? 0xfff3dc : tail ? 0xff2a1c : 0x0a0a0a);
+        light.drlMat.emissiveIntensity = head ? 1.2 : tail ? 0.9 : 0;
+      }
       light.glowMat.color.setHex(head ? 0xfff2d8 : 0xff2a1e);
       light.glowMat.opacity = head
-        ? THREE.MathUtils.lerp(0.5, 0.9, lampNight)
+        ? THREE.MathUtils.lerp(0.22, 0.82, lampNight)
         : tail
-          ? THREE.MathUtils.lerp(0.24, 0.55, lampNight)
+          ? THREE.MathUtils.lerp(0.12, 0.48, lampNight)
           : 0;
       if (light.haloMat) {
         light.haloMat.color.setHex(head ? 0xffe7b4 : 0xff3a24);
         light.haloMat.opacity = head
-          ? THREE.MathUtils.lerp(0.14, 0.32, lampNight)
+          ? THREE.MathUtils.lerp(0.06, 0.24, lampNight)
           : tail
-            ? THREE.MathUtils.lerp(0.06, 0.18, lampNight)
+            ? THREE.MathUtils.lerp(0.03, 0.14, lampNight)
             : 0;
       }
     }

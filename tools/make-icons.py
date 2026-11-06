@@ -258,7 +258,7 @@ d.text((72, 172), "Metro", font=f_title, fill=(244, 248, 249))
 w_metro = d.textlength("Metro", font=f_title)
 d.text((72 + w_metro + 8, 172), "live", font=f_title_light, fill=(196, 208, 211))
 tracked(d, (76, 300), "RED / GREEN / BLUE", f_sub, (238, 243, 244), 3.2)
-tracked(d, (76, 330), "64.6 KM  ·  57 STATIONS  ·  162 SETS", f_small, (150, 169, 173), 2.2)
+tracked(d, (76, 330), "64.6 KM  ·  57 STATIONS  ·  57 SETS", f_small, (150, 169, 173), 2.2)
 
 # line badges
 bx = 76

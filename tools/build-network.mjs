@@ -5,9 +5,11 @@
 //   node tools/build-network.mjs
 //     -> assets/data/network.json
 //
-// The feed has 2,820 trips across 162 blocks. A block is one physical train set:
-// every consecutive pair of trips in a block is the same line in the opposite
-// direction, which is exactly the terminus turnback we want to animate.
+// The feed has 2,820 trips across three service classes (weekday, Saturday,
+// Sunday). A block is one duty: every consecutive pair of trips in a block is
+// the same line in the opposite direction, which is exactly the terminus
+// turnback we want to animate. A weekday has 1,062 trips in 70 duty blocks;
+// the HMRL fleet is 57 three-car sets, with at most 56 in service at once.
 // ---------------------------------------------------------------------------
 
 import fs from 'node:fs';
@@ -278,6 +280,19 @@ for (const line of lines) {
 // service calendars in the compact form the runtime uses
 const calendarOut = services.map((s) => s.days);
 
+// A trip carries one service class; a block is a single duty and therefore
+// also belongs to one class. Summing blocks across classes (162) is not a
+// fleet count — a weekday runs 70 duties, and peak concurrency is 56.
+const tripsByService = calendarOut.map((_, si) =>
+  lines.reduce((n, l) => n + l.trips.filter((t) => t.svc === si).length, 0)
+);
+const blocksByService = calendarOut.map((_, si) =>
+  lines.reduce(
+    (n, l) => n + l.blocks.filter((b) => l.trips[b.trips[0]]?.svc === si).length,
+    0
+  )
+);
+
 const out = {
   meta: {
     generated: new Date().toISOString(),
@@ -289,8 +304,9 @@ const out = {
       lines: lines.length,
       stations: new Set(lines.flatMap((l) => l.stations.map((s) => s.name))).size,
       trips: lines.reduce((n, l) => n + l.trips.length, 0),
-      blocks: lines.reduce((n, l) => n + l.blocks.length, 0),
       length: lines.reduce((n, l) => n + l.length, 0),
+      tripsByService,
+      blocksByService,
     },
   },
   lines,

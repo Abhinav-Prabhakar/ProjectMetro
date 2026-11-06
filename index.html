@@ -88,7 +88,7 @@
 <link rel="dns-prefetch" href="https://tiles.openfreemap.org" />
 <link rel="preload" href="assets/fonts/Inter-400.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="preload" href="assets/fonts/JetBrainsMono-400.woff2" as="font" type="font/woff2" crossorigin />
-<link rel="modulepreload" href="js/main.js?v=20261105p" />
+<link rel="modulepreload" href="js/main.js?v=20261106g" />
 
 <script type="application/ld+json">
 {
@@ -114,7 +114,7 @@
 </script>
 
 <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-<link rel="stylesheet" href="css/style.css?v=20261105p" />
+<link rel="stylesheet" href="css/style.css?v=20261106g" />
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.js" } }
 </script>
@@ -149,7 +149,7 @@
     </div>
     <div class="intro-eyebrow">HYDERABAD METRO RAIL · THREE CORRIDORS · LIVE TIMETABLE</div>
     <h1>Metro<span class="thin"> live</span></h1>
-    <div class="intro-sub">Red · Green · Blue &nbsp;/&nbsp; 64.6 km &nbsp;/&nbsp; 57 stations &nbsp;/&nbsp; 162 sets</div>
+    <div class="intro-sub">Red · Green · Blue &nbsp;/&nbsp; 64.6 km &nbsp;/&nbsp; 57 stations &nbsp;/&nbsp; 57 sets</div>
     <div class="intro-load"><span id="loadBar"></span></div>
     <div class="intro-status" id="loadStatus">INITIALISING TRACKER</div>
   </div>
@@ -180,8 +180,6 @@
 
     <div class="top-mid">
       <span class="live-dot"></span>
-      <span>IN SERVICE</span>
-      <span class="sep"></span>
       <span id="serviceLabel">WEEKDAY</span>
       <span class="sep"></span>
       <span id="clock" class="mono">00:00:00 IST</span>
@@ -214,7 +212,6 @@
   <aside class="journey glass">
     <div class="card-head">
       <span class="card-kicker">NEXT STATION</span>
-      <span class="card-tag"><i></i>IN SERVICE</span>
     </div>
 
     <div class="next-row">
@@ -283,32 +280,52 @@
     </div>
   </section>
 
-  <div class="hint" id="hint">DRAG&nbsp; ORBIT &nbsp;·&nbsp; SCROLL&nbsp; ZOOM &nbsp;·&nbsp; N&nbsp; NIGHT &nbsp;·&nbsp; L&nbsp; LINE &nbsp;·&nbsp; SPACE&nbsp; PAUSE &nbsp;·&nbsp; H&nbsp; HIDE UI</div>
+  <div class="hint" id="hint">DRAG&nbsp; ORBIT &nbsp;·&nbsp; SCROLL&nbsp; ZOOM &nbsp;·&nbsp; F&nbsp; FLEET &nbsp;·&nbsp; N&nbsp; NIGHT &nbsp;·&nbsp; L&nbsp; LINE &nbsp;·&nbsp; SPACE&nbsp; PAUSE &nbsp;·&nbsp; H&nbsp; HIDE UI</div>
 
-  <nav class="dock glass">
-    <div class="train-select" id="trainSelect">
-      <button class="train-select-btn" id="trainSelectBtn" aria-haspopup="listbox" aria-expanded="false" aria-controls="trainSelectMenu">
-        <span class="ts-dot" id="tsDot" aria-hidden="true"></span>
-        <span class="ts-label">
-          <span class="ts-id" id="tsId">SELECT SET</span>
-          <span class="ts-sub" id="tsSub">NEAREST</span>
-        </span>
-        <svg class="ts-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-      <div class="train-select-menu" id="trainSelectMenu" role="listbox" aria-label="Choose a train" hidden>
-        <ul id="trainSelectList"></ul>
+  <nav class="dock glass" id="dock" aria-label="Network controls">
+    <div class="dock-net">
+      <span class="dock-live"><i></i>LIVE</span>
+      <div class="dock-figure">
+        <b id="fleetTotal">0</b>
+        <span>SETS<br/>IN SERVICE</span>
+      </div>
+      <div class="dock-lines" id="fleetLines" aria-hidden="true">
+        <span class="dock-line" data-line="RED" style="--c:#E31E24"><i></i><b>0</b></span>
+        <span class="dock-line" data-line="GREEN" style="--c:#009846"><i></i><b>0</b></span>
+        <span class="dock-line" data-line="BLUE" style="--c:#007ABB"><i></i><b>0</b></span>
       </div>
     </div>
     <div class="dock-div"></div>
-    <button class="dock-btn primary" id="playBtn" aria-label="Pause">
-      <svg class="ic-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>
-      <svg class="ic-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>
+    <button class="dock-set" id="fleetBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="fleetBoard" title="Fleet board (F)">
+      <span class="ts-dot" id="tsDot" aria-hidden="true"></span>
+      <span class="dock-set-text">
+        <span class="ts-id" id="tsId">SELECT SET</span>
+        <span class="ts-sub" id="tsSub">NEAREST</span>
+      </span>
+      <svg class="ts-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
     <div class="dock-div"></div>
-    <button class="dock-btn" id="resetCam" aria-label="Recenter camera" title="Recenter camera (R)">
-      <svg viewBox="0 0 24 24"><path d="M12 3.5l2.2 4.5 4.9.7-3.5 3.4.8 4.9-4.4-2.3-4.4 2.3.8-4.9L4.9 8.7l4.9-.7z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
-    </button>
+    <div class="dock-controls">
+      <button class="dock-btn primary" id="playBtn" aria-label="Pause">
+        <svg class="ic-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>
+        <svg class="ic-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>
+      </button>
+      <button class="dock-btn" id="resetCam" aria-label="Recenter camera" title="Recenter camera (R)">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.1" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M12 3.2v3.4M12 17.4v3.4M3.2 12h3.4M17.4 12h3.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      </button>
+    </div>
   </nav>
+
+  <section class="fleet-board glass" id="fleetBoard" role="dialog" aria-label="Fleet board" hidden>
+    <header class="fleet-head">
+      <div>
+        <div class="card-kicker">FLEET BOARD</div>
+        <div class="fleet-headline"><b id="fleetBoardTotal">0</b> SETS IN SERVICE · <span id="fleetBoardService">WEEKDAY</span></div>
+      </div>
+      <button class="fleet-close" id="fleetClose" aria-label="Close fleet board">×</button>
+    </header>
+    <div class="fleet-cols" id="fleetList"></div>
+  </section>
 
   <footer class="footer">
     <span>HYDERABAD METRO · RED / GREEN / BLUE · 64.6 KM · 57 STATIONS</span>
@@ -317,7 +334,6 @@
   </footer>
 
   <div class="stats mono" id="stats"></div>
-  <div class="train-count mono" id="trainCount"></div>
 
   <div class="net-banner mono" id="netBanner" role="status" aria-live="polite" hidden><i></i>OFFLINE · TIMETABLE STILL RUNNING · IMAGERY PAUSED</div>
   <button class="update-toast mono" id="updateToast" type="button" hidden>NEW BUILD READY · TAP TO RELOAD</button>
@@ -344,7 +360,8 @@
   <dl>
     <div><dt>Lines</dt><dd>Red · Green · Blue</dd></div>
     <div><dt>Network</dt><dd>64.6 km · 57 stations</dd></div>
-    <div><dt>Sets</dt><dd>162 blocks · 2,820 trips</dd></div>
+    <div><dt>Fleet</dt><dd>57 sets · 70 weekday duties</dd></div>
+    <div><dt>Weekday trips</dt><dd>1,062</dd></div>
     <div><dt>Formation</dt><dd>D–M–D · 3 cars</dd></div>
     <div><dt>Gauge</dt><dd>1,435 mm</dd></div>
     <div><dt>Power</dt><dd>25 kV AC OHE</dd></div>
@@ -355,6 +372,6 @@
   <p class="notes-small">Timetable and station data © Hyderabad Metro Rail Ltd., July 2026 GTFS (Open Data Telangana). Satellite imagery © Esri, Maxar, Earthstar Geographics. 3D buildings © OpenFreeMap / OpenStreetMap contributors. An independent visual study, not an operational feed.</p>
 </div>
 
-<script type="module" src="js/main.js?v=20261105p"></script>
+<script type="module" src="js/main.js?v=20261106g"></script>
 </body>
 </html>

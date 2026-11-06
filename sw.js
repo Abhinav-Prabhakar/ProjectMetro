@@ -6,12 +6,13 @@
 // cached hard. Map tiles are cross-origin and deliberately left alone —
 // caching them would be huge and they change far too often.
 //
-// Precache stores unversioned copies of the app files. Requests normally carry
-// a `?v=` build tag, so when the exact URL is missing offline the handler
-// falls back to the unversioned copy with `ignoreSearch`.
+// Code and styles are precached under the same `?v=` build tag the page asks
+// for, so an offline reload always pairs a build with itself. Only documents
+// and data fall back to a search-insensitive copy.
 // ---------------------------------------------------------------------------
 
-const VERSION = 'hmlive-2026-11-05-5';
+const BUILD = '20261106g';
+const VERSION = 'hmlive-2026-11-06-8';
 const SHELL = `hmlive-shell-${VERSION}`;
 const RUNTIME = `hmlive-runtime-${VERSION}`;
 const DATA = `hmlive-data-${VERSION}`;
@@ -21,20 +22,6 @@ const PRECACHE = [
   './index.html',
   './offline.html',
   './manifest.webmanifest',
-  './css/style.css',
-  './js/main.js',
-  './js/config.js',
-  './js/network.js',
-  './js/sim.js',
-  './js/infrastructure.js',
-  './js/station.js',
-  './js/train.js',
-  './js/world.js',
-  './js/materials.js',
-  './js/geomutil.js',
-  './js/lighting.js',
-  './js/geo.js',
-  './js/viaduct.js',
   './vendor/maplibre-gl.js',
   './vendor/maplibre-gl.css',
   './vendor/three.module.js',
@@ -46,6 +33,23 @@ const PRECACHE = [
   './assets/icons/maskable-512.png',
   './assets/fonts/Inter-400.woff2',
   './assets/fonts/JetBrainsMono-400.woff2',
+  // Build-tagged so the shell can never mix two versions of the code.
+  ...[
+    './css/style.css',
+    './js/main.js',
+    './js/config.js',
+    './js/network.js',
+    './js/sim.js',
+    './js/infrastructure.js',
+    './js/station.js',
+    './js/train.js',
+    './js/world.js',
+    './js/materials.js',
+    './js/geomutil.js',
+    './js/lighting.js',
+    './js/geo.js',
+    './js/viaduct.js',
+  ].map((url) => `${url}?v=${BUILD}`),
 ];
 
 self.addEventListener('install', (event) => {
@@ -93,6 +97,11 @@ function isData(url) {
   return /\/assets\/data\//.test(pathOf(url));
 }
 
+function isCode(url) {
+  const p = pathOf(url);
+  return p.startsWith('/js/') || p.startsWith('/css/') || /\.(?:m?js|css)$/.test(p);
+}
+
 async function staleWhileRevalidate(request, cacheName) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
@@ -120,6 +129,10 @@ async function networkFirst(request, cacheName, fallbacks = []) {
   } catch (err) {
     const exact = await cache.match(request);
     if (exact) return exact;
+    // Never answer a versioned module with a different build's copy: that is
+    // how a fresh index.html ends up running an old train.js and failing to
+    // boot. Code is only served from the exact URL, or fails honestly.
+    if (isCode(request.url)) throw err;
     for (const name of fallbacks) {
       const alt = await caches.open(name);
       const hit = (await alt.match(request)) || (await alt.match(request, { ignoreSearch: true }));

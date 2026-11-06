@@ -7,15 +7,15 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { MAP, TRAIN, SIM } from './config.js?v=20261105p';
-import { loadNetwork } from './network.js?v=20261105p';
-import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261105p';
-import { buildStations } from './station.js?v=20261105p';
-import { createTrain, createTrainProxy } from './train.js?v=20261105p';
-import { createWorld } from './world.js?v=20261105p';
-import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261105p';
-import { makeGlowRadial } from './materials.js?v=20261105p';
-import { mergeGeometries } from './geomutil.js?v=20261105p';
+import { MAP, TRAIN, SIM } from './config.js?v=20261106g';
+import { loadNetwork } from './network.js?v=20261106g';
+import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261106g';
+import { buildStations } from './station.js?v=20261106g';
+import { createTrain, createTrainProxy } from './train.js?v=20261106g';
+import { createWorld } from './world.js?v=20261106g';
+import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261106g';
+import { makeGlowRadial } from './materials.js?v=20261106g';
+import { mergeGeometries } from './geomutil.js?v=20261106g';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -53,10 +53,15 @@ const els = {
   notes: $('notes'),
   notesClose: $('notesClose'),
   lineSwitch: $('lineSwitch'),
-  trainSelect: $('trainSelect'),
-  trainSelectBtn: $('trainSelectBtn'),
-  trainSelectMenu: $('trainSelectMenu'),
-  trainSelectList: $('trainSelectList'),
+  dock: $('dock'),
+  fleetBtn: $('fleetBtn'),
+  fleetBoard: $('fleetBoard'),
+  fleetList: $('fleetList'),
+  fleetClose: $('fleetClose'),
+  fleetTotal: $('fleetTotal'),
+  fleetLines: $('fleetLines'),
+  fleetBoardTotal: $('fleetBoardTotal'),
+  fleetBoardService: $('fleetBoardService'),
   tsId: $('tsId'),
   tsSub: $('tsSub'),
   tsDot: $('tsDot'),
@@ -71,7 +76,6 @@ const els = {
   updateToast: $('updateToast'),
   themeColor: document.querySelector('meta[name="theme-color"]'),
   serviceLabel: $('serviceLabel'),
-  trainCount: $('trainCount'),
   stats: $('stats'),
 };
 
@@ -105,6 +109,9 @@ const state = {
   doors: 0,
   vehicle: null,
   hasUserSelected: false,
+  fleetTotal: 0,
+  fleetByLine: { RED: 0, GREEN: 0, BLUE: 0 },
+  fleetAll: [],
 };
 
 // ---------------------------------------------------------------------------
@@ -385,6 +392,7 @@ async function boot() {
 
     applyNight({ immediate: true });
     placeAll();
+    updateFleetPulse(true);
 
     ready = true;
     setProgress(1, 'SYSTEMS ONLINE');
@@ -405,40 +413,54 @@ async function boot() {
 // train selection
 // ---------------------------------------------------------------------------
 
+const LINE_ORDER = ['RED', 'GREEN', 'BLUE'];
+const LINE_META = {
+  RED: { name: 'RED LINE', color: '#E31E24' },
+  GREEN: { name: 'GREEN LINE', color: '#009846' },
+  BLUE: { name: 'BLUE LINE', color: '#007ABB' },
+};
+
 function activeVehicles(near = null, radius = 5000) {
   const svc = svcIndexFor(network, state.epoch);
   const t = istParts(state.epoch).sec;
   return fleet.snapshot(t, svc, { near, radius });
 }
 
+/** Every set running anywhere on the network at the current timetable second. */
+function wholeNetwork() {
+  return activeVehicles(measureFocus(), 1e9);
+}
+
 // ---------------------------------------------------------------------------
-// Train selector
+// Fleet board
 //
-// A native <select> cannot show the line colour, direction and live state at a
-// glance, so the dock carries a small custom listbox. It only ever lists sets
-// that are running right now, nearest first, and it never steals the clock:
-// the timetable keeps moving while the menu is open.
+// The dock reports the whole network, not just the sets inside the camera's
+// culling radius. The board lists every active set, grouped by corridor, and
+// stays live while it is open; the timetable never stops for it.
 // ---------------------------------------------------------------------------
 
 const picker = {
   open: false,
   items: [],
   index: 0,
-  updatedAt: 0,
+  renderedAt: 0,
 };
 
 const escapeHtml = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+const setNumber = (id) => String(id).replace(/^[A-Z]{2}_/, '');
+
 function pickerItem(v) {
   const line = v.block.line;
-  const to = v.pattern && v.pattern.dir > 0 ? line.to : line.from;
+  const dir = v.pattern ? v.pattern.dir : v.dir;
+  const to = dir > 0 ? line.to : line.from;
   const moving = v.phase === 'run' || v.phase === 'arriving';
   return {
     id: v.block.id,
     lineId: line.id,
     color: line.color,
-    number: v.block.id.split(':')[1],
+    number: setNumber(v.block.id.split(':')[1] || v.block.id),
     to,
     kmh: moving ? Math.round(v.v * 3.6) : 0,
     state:
@@ -452,87 +474,150 @@ function pickerItem(v) {
             ? 'ARRIVING'
             : 'IN SERVICE',
     distance: v.distance ?? 0,
-    active: v.block.id === state.followId,
+    active: v.block.id === (state.followId || state.vehicle?.block.id),
   };
 }
 
-function refreshPicker(force = false) {
-  if (!els.trainSelectList || picker.open) return;
-  const now = performance.now();
-  if (!force && now - picker.updatedAt < 2000) return;
-  picker.updatedAt = now;
-
-  const list = activeVehicles(scratch.focus, 6000);
-  list.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
-  picker.items = list.slice(0, 16).map(pickerItem);
-  renderPicker();
+function fleetItems() {
+  return state.fleetAll
+    .map(pickerItem)
+    .sort(
+      (a, b) =>
+        LINE_ORDER.indexOf(a.lineId) - LINE_ORDER.indexOf(b.lineId) ||
+        a.number.localeCompare(b.number, undefined, { numeric: true })
+    );
 }
 
-function renderPicker() {
-  if (!els.trainSelectList) return;
-  const rows = picker.items.map((item, i) => {
-    const dist = item.distance < 1000 ? `${Math.round(item.distance)} m` : `${(item.distance / 1000).toFixed(1)} km`;
-    const speed = item.kmh > 0 ? `${item.kmh} km/h` : item.state;
-    return (
-      `<li role="option" aria-selected="${item.active}" data-index="${i}" data-id="${escapeHtml(item.id)}"` +
-      ` class="ts-option${item.active ? ' active' : ''}${i === picker.index ? ' cursor' : ''}">` +
-      `<span class="ts-badge" style="--c:${item.color}">${escapeHtml(item.lineId)}</span>` +
-      `<span class="ts-option-main"><b>${escapeHtml(item.number)}</b><em>TO ${escapeHtml(item.to.toUpperCase())}</em></span>` +
-      `<span class="ts-option-meta"><b>${escapeHtml(speed)}</b><em>${escapeHtml(dist)}</em></span>` +
-      `</li>`
-    );
+function serviceName() {
+  return ['WEEKDAY', 'SATURDAY', 'SUNDAY'][svcIndexFor(network, state.epoch)] || 'WEEKDAY';
+}
+
+// Two columns, balanced by rows. With three corridors the split is rarely even
+// (RED 12, GREEN 3, BLUE 13), so try every assignment and keep the one whose
+// tallest column is shortest. The first corridor always stays in the left
+// column, so the reading order never flips.
+function packStacks(sections, columns = 2) {
+  if (sections.length <= 1) return [sections];
+  let best = null;
+  let bestHeight = Infinity;
+  const combos = 1 << sections.length;
+  for (let mask = 0; mask < combos; mask += 2) {
+    const stacks = Array.from({ length: columns }, () => []);
+    for (let i = 0; i < sections.length; i++) {
+      stacks[mask & (1 << i) ? 1 : 0].push(sections[i]);
+    }
+    if (stacks.some((stack) => stack.length === 0)) continue;
+    const height = Math.max(...stacks.map((stack) => stack.reduce((n, s) => n + s.rows, 0)));
+    if (height < bestHeight) {
+      bestHeight = height;
+      best = stacks;
+    }
+  }
+  return best || [sections];
+}
+
+function renderFleet() {
+  if (!els.fleetList) return;
+  const items = fleetItems();
+  picker.items = items;
+  if (picker.index >= items.length) picker.index = 0;
+
+  const indexOf = new Map(items.map((item, i) => [item.id, i]));
+  const sections = LINE_ORDER.map((lineId) => {
+    const meta = LINE_META[lineId];
+    const rows = items.filter((item) => item.lineId === lineId);
+    const body = rows.length
+      ? rows
+          .map((item) => {
+            const i = indexOf.get(item.id);
+            const dist =
+              item.distance < 1000
+                ? `${Math.round(item.distance)} m`
+                : `${(item.distance / 1000).toFixed(1)} km`;
+            const metaText = item.kmh > 0 ? `${item.kmh} km/h` : item.state;
+            return (
+              `<li><button class="fleet-row${item.active ? ' active' : ''}${i === picker.index ? ' cursor' : ''}"` +
+              ` data-index="${i}" data-id="${escapeHtml(item.id)}" style="--c:${item.color}">` +
+              `<span class="fleet-row-id"><i></i>${escapeHtml(item.number)}</span>` +
+              `<span class="fleet-row-dest">TO ${escapeHtml(item.to.toUpperCase())}</span>` +
+              `<b class="fleet-row-speed">${escapeHtml(metaText)}</b>` +
+              `<em class="fleet-row-dist">${escapeHtml(dist)}</em>` +
+              `</button></li>`
+            );
+          })
+          .join('')
+      : '<li class="fleet-empty">NO SETS RUNNING</li>';
+    return {
+      rows: rows.length,
+      html:
+        `<section class="fleet-col" style="--c:${meta.color}">` +
+        `<header class="fleet-col-head"><span class="fleet-col-name"><i></i>${meta.name}</span>` +
+        `<span class="fleet-col-count">${rows.length}</span></header>` +
+        `<ul class="fleet-list">${body}</ul></section>`,
+    };
   });
-  els.trainSelectList.innerHTML =
-    rows.join('') || '<li class="ts-empty">No sets are running right now.</li>';
+
+  const scrollTop = els.fleetList.scrollTop;
+  els.fleetList.innerHTML = packStacks(sections)
+    .map((stack) => `<div class="fleet-stack">${stack.map((s) => s.html).join('')}</div>`)
+    .join('');
+  els.fleetList.scrollTop = scrollTop;
+
+  if (els.fleetBoardTotal) els.fleetBoardTotal.textContent = String(items.length);
+  if (els.fleetBoardService) els.fleetBoardService.textContent = serviceName();
+  picker.renderedAt = performance.now();
 }
 
 function updatePickerLabel() {
   if (!els.tsId) return;
   const v = state.vehicle;
   const line = currentLine();
-  const cur = picker.items.find((x) => x.active) || (v ? pickerItem(v) : null);
-  if (cur) {
-    els.tsId.textContent = cur.number;
-    els.tsSub.textContent = `${cur.lineId} · TO ${cur.to.toUpperCase()}`;
-    if (els.tsDot) els.tsDot.style.background = line.color;
+  if (v) {
+    const item = pickerItem(v);
+    els.tsId.textContent = item.number;
+    els.tsSub.textContent = `${item.lineId} · TO ${item.to.toUpperCase()}`;
   } else {
     els.tsId.textContent = 'SELECT SET';
     els.tsSub.textContent = `${line.id} · NEAREST`;
-    if (els.tsDot) els.tsDot.style.background = line.color;
+  }
+  if (els.tsDot) {
+    els.tsDot.style.background = line.color;
+    els.tsDot.style.setProperty('--ts-c', line.color);
   }
 }
 
-function setPickerOpen(open) {
-  if (open === picker.open || !els.trainSelect) return;
+function setFleetOpen(open) {
+  if (open === picker.open || !els.fleetBtn) return;
+  if (open) updateFleetPulse(true);
   picker.open = open;
-  els.trainSelect.classList.toggle('open', open);
-  els.trainSelectBtn.setAttribute('aria-expanded', String(open));
+  els.fleetBtn.classList.toggle('open', open);
+  els.fleetBtn.setAttribute('aria-expanded', String(open));
   if (open) {
-    refreshPicker(true);
-    picker.index = Math.max(0, picker.items.findIndex((x) => x.active));
-    renderPicker();
-    els.trainSelectMenu.hidden = false;
+    picker.index = Math.max(0, fleetItems().findIndex((x) => x.active));
+    renderFleet();
+    els.fleetBoard.hidden = false;
+    els.fleetBtn.focus({ preventScroll: true });
     requestAnimationFrame(() => {
-      const active = els.trainSelectList.querySelector('.ts-option.cursor');
+      const active = els.fleetList.querySelector('.fleet-row.cursor');
       if (active) active.scrollIntoView({ block: 'nearest' });
     });
   } else {
-    els.trainSelectMenu.hidden = true;
+    els.fleetBoard.hidden = true;
   }
 }
 
 function movePicker(step) {
   if (!picker.items.length) return;
   picker.index = (picker.index + step + picker.items.length) % picker.items.length;
-  renderPicker();
-  const active = els.trainSelectList.querySelector('.ts-option.cursor');
+  renderFleet();
+  const active = els.fleetList.querySelector('.fleet-row.cursor');
   if (active) active.scrollIntoView({ block: 'nearest' });
 }
 
 function choosePicker(index) {
   const item = picker.items[index];
   if (!item) return;
-  setPickerOpen(false);
+  setFleetOpen(false);
   selectVehicle(item.id);
   recenterCamera();
 }
@@ -634,6 +719,12 @@ function placeAll() {
   for (const lr of lineRuntime.values()) {
     for (const p of lr.proxies) p.group.visible = false;
   }
+  // Only individual coaches in the camera's vicinity are drawn. The radius
+  // scales with zoom: a couple of coaches at street zoom, the whole visible
+  // network when the map is pulled back.
+  const zoomNow = cam.free ? world.map.getZoom() : cam.zoom;
+  const vicinity = Math.max(70, Math.min(2600, 220 * Math.pow(2, 19 - zoomNow)));
+
   const used = new Map();
   const maxProxies = 8;
   let n = 0;
@@ -648,6 +739,7 @@ function placeAll() {
     proxy.group.visible = true;
     proxy.setMode(v.dir);
     placeCarsFor(proxy, lr.route, v);
+    proxy.cull(focus, vicinity);
     n++;
   }
   state.renderedTrains = n + 1;
@@ -789,6 +881,44 @@ function nextStationOf(v) {
   return line.stations[v.pattern.stops[idx].st] || null;
 }
 
+// ---------------------------------------------------------------------------
+// Network pulse
+//
+// The dock reports the whole timetable, not the handful of sets inside the
+// camera's culling radius. This walks every duty once a second, which is
+// cheap (a weekday has 70 duty blocks) and keeps the fleet board honest while
+// it is open.
+// ---------------------------------------------------------------------------
+
+let fleetPulseAt = 0;
+
+function updateFleetPulse(force = false) {
+  if (!fleet || !network) return;
+  const now = performance.now();
+  if (!force && now - fleetPulseAt < 1000) return;
+  fleetPulseAt = now;
+
+  const all = wholeNetwork();
+  state.fleetAll = all;
+  const byLine = { RED: 0, GREEN: 0, BLUE: 0 };
+  for (const v of all) {
+    const id = v.block.line.id;
+    byLine[id] = (byLine[id] || 0) + 1;
+  }
+  state.fleetByLine = byLine;
+  state.fleetTotal = all.length;
+
+  if (els.fleetTotal) els.fleetTotal.textContent = String(all.length);
+  if (els.fleetLines) {
+    for (const el of els.fleetLines.querySelectorAll('.dock-line')) {
+      const b = el.querySelector('b');
+      if (b) b.textContent = String(byLine[el.dataset.line] || 0);
+    }
+  }
+  if (els.fleetBoardService) els.fleetBoardService.textContent = serviceName();
+  if (picker.open && now - picker.renderedAt > 2500) renderFleet();
+}
+
 function updateHud(dt) {
   const line = currentLine();
   const part = istParts(state.epoch);
@@ -909,15 +1039,9 @@ function updateHud(dt) {
   if (els.runTag) {
     els.runTag.textContent = `${line.id} · ${v.block.id.split(':')[1]} · D–M–D`;
   }
-  if (els.trainCount) {
-    els.trainCount.textContent = `${state.renderedTrains || 1} SETS IN VIEW`;
-  }
-
-  // picker, refreshed occasionally and never while open
-  if (!picker.open) refreshPicker();
   updatePickerLabel();
   if (els.mapStatus) {
-    els.mapStatus.textContent = `${state.renderedTrains || 1} SETS · ${cam.zoom.toFixed(2)}× · ${Math.round(cam.pitch)}°`;
+    els.mapStatus.textContent = `${state.fleetTotal} SETS · ${cam.zoom.toFixed(2)}× · ${Math.round(cam.pitch)}°`;
   }
 }
 
@@ -1022,31 +1146,39 @@ function bindControls() {
       recenterCamera();
     });
   }
-  if (els.trainSelectBtn && els.trainSelectMenu) {
-    els.trainSelectBtn.addEventListener('click', (e) => {
+  if (els.fleetBtn && els.fleetBoard) {
+    els.fleetBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      setPickerOpen(!picker.open);
+      setFleetOpen(!picker.open);
     });
-    els.trainSelectMenu.addEventListener('click', (e) => {
-      const row = e.target.closest('.ts-option');
+    els.fleetBoard.addEventListener('click', (e) => {
+      const row = e.target.closest('.fleet-row');
       if (!row) return;
       choosePicker(Number(row.dataset.index));
     });
+    if (els.fleetClose) {
+      els.fleetClose.addEventListener('click', () => {
+        setFleetOpen(false);
+        els.fleetBtn.focus();
+      });
+    }
     document.addEventListener('pointerdown', (e) => {
-      if (picker.open && !els.trainSelect.contains(e.target)) setPickerOpen(false);
+      if (picker.open && !els.dock.contains(e.target) && !els.fleetBoard.contains(e.target)) {
+        setFleetOpen(false);
+      }
     });
-    els.trainSelect.addEventListener('keydown', (e) => {
+    els.fleetBtn.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
-        if (!picker.open) setPickerOpen(true);
+        if (!picker.open) setFleetOpen(true);
         else movePicker(e.key === 'ArrowDown' ? 1 : -1);
       } else if (e.key === 'Enter' && picker.open) {
         e.preventDefault();
         choosePicker(picker.index);
       } else if (e.key === 'Escape' && picker.open) {
         e.preventDefault();
-        setPickerOpen(false);
-        els.trainSelectBtn.focus();
+        setFleetOpen(false);
+        els.fleetBtn.focus();
       }
     });
   }
@@ -1060,6 +1192,7 @@ function bindControls() {
     else if (e.key.toLowerCase() === 'i') toggleNotes();
     else if (e.key.toLowerCase() === 'h') document.body.classList.toggle('hide-ui');
     else if (e.key.toLowerCase() === 'n') toggleNight();
+    else if (e.key.toLowerCase() === 'f') setFleetOpen(!picker.open);
     else if (e.key.toLowerCase() === 'l') {
       const order = ['RED', 'GREEN', 'BLUE'];
       const i = order.indexOf(state.lineId);
@@ -1073,7 +1206,7 @@ function bindControls() {
       document.body.classList.toggle('no-buildings', !visible);
     } else if (e.key === 'Escape') {
       toggleNotes(false);
-      setPickerOpen(false);
+      setFleetOpen(false);
       closeInstallSheet();
     }
   });
@@ -1186,6 +1319,7 @@ function frame(now) {
   stepNight(dt);
   const focus = updateCamera(dt);
   placeAll();
+  updateFleetPulse();
   world.update(dt);
   world.updateSun(focus);
 
@@ -1203,7 +1337,7 @@ function frame(now) {
     fpsAccum = 0;
     fpsFrames = 0;
     if (els.stats) {
-      els.stats.textContent = `${Math.round(fps)} FPS · ${world.stats.drawCalls} CALLS · ${state.renderedTrains || 0} SETS`;
+      els.stats.textContent = `${Math.round(fps)} FPS · ${world.stats.drawCalls} CALLS · ${state.renderedTrains || 0} DRAWN`;
     }
     if (!lowQuality && fps < 38 && ready) {
       lowQuality = true;

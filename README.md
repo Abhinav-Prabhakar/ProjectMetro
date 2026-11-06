@@ -12,7 +12,7 @@
 <img alt="License" src="https://img.shields.io/badge/license-MIT-8b5cf6?style=flat-square">
 </p>
 
-**Red · Green · Blue — 64.6 km, 57 stations, 162 train sets**, all driven by the
+**Red · Green · Blue — 64.6 km, 57 stations, 57 three-car sets**, all driven by the
 official HMRL timetable. Every set in service is simulated; the camera rides one
 of them along a photo-real elevated viaduct, over live satellite imagery, with a
 city that switches on when the sun goes down.
@@ -51,8 +51,17 @@ corridor's hall and the glazed concourse that joins them.
 ## What's actually going on
 
 - **Real timetable.** The official HMRL GTFS feed is compiled into a network
-  graph — 2,820 trips, 61,236 stop times, 706 stops, 6 shapes. A service-day
-  clock runs on IST, so what you see matches the published schedule.
+  graph — 2,820 trips across weekday, Saturday and Sunday service (1,062 on a
+  weekday), 61,236 stop times, 706 stops, 6 shapes. A service-day clock runs on
+  IST, so what you see matches the published schedule.
+- **The whole network.** The dock counts every set in service across all three
+  corridors, and the fleet board lists all of them. The renderer still only
+  draws the sets near the camera — the timetable is global, the draw call is
+  local.
+- **57 sets, 70 weekday duties.** The feed's weekday timetable has 70 duty
+  blocks; the HMRL fleet is 57 three-car sets, and peak concurrency is 56.
+  Blocks are duties, not a fleet count — summing the three service classes
+  gives 162, which is why that number should never be read as "trains".
 - **Real physics.** Trains accelerate at `0.95 m/s²`, brake at `1.05 m/s²`, and
   cruise at up to 80 km/h. Each segment's cruise speed is solved so the arrival
   time matches GTFS exactly.
@@ -159,6 +168,10 @@ anywhere on the planet without losing float precision.
 
 - Timetable and station data: **Hyderabad Metro Rail Ltd** via
   [Open Data Telangana](https://data.telangana.gov.in/) (GTFS, 2026).
+- The bundled feed in `tools/gtfs/` is byte-identical to the published
+  `telangana_opendata_gtfs_hmrl_03_july_2026.zip`. Its six shapes total 64.6 km;
+  HMRL publishes 69.2 km of operational route, the extra length being terminal
+  and depot track that the feed's shapes do not carry.
 - Imagery: **Esri World Imagery** via the public ArcGIS tile service.
 - Streets and buildings: **OpenStreetMap** contributors, vector tiles by
   **OpenFreeMap**.

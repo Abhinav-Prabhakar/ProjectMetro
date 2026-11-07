@@ -33,9 +33,39 @@ city that switches on when the sun goes down.
 
 The whole scene relights: warm sodium street-light bloom across the city grid,
 lit train windows, illuminated canopies, headlights, and a sky that changes with
-the time mode. The switch is one slow (~5 s) crossfade — the 3D light rig, the
-sky gradient, the satellite grade, the OSM street glow and the train lamps all
-move together, so the city never snaps from noon to midnight.
+the time mode. The switch is one slow (4.8 s) crossfade — the 3D light rig, the
+sky gradient, the reflected-sky environment on the train, piers and guideway,
+the satellite grade, the OSM street glow and the train lamps all move together,
+so the city never snaps from noon to midnight.
+
+Both sky environments are built once at startup; the day and night maps are
+mixed in the fragment shader with a single uniform, so no material ever swaps
+its environment map on a transition frame.
+
+## Fleet board & command palette
+
+| Fleet board | Command palette |
+| --- | --- |
+| ![Fleet board](assets/readme/fleet-board.jpg) | ![Command palette](assets/readme/command-palette.jpg) |
+
+`F`, or the train pill in the dock, opens the **fleet board** — every set in
+service, grouped by corridor, with the station it is heading towards next,
+arrival ETA, route progress and terminus. Hovering or focusing a row reveals
+distance to the next station, current speed and stops left. The inline search
+filters by next station or set number, and live refreshes patch the rows in
+place so the row you are reading never jumps.
+
+`/` or `Cmd/Ctrl K` opens the **command palette**. Searching a station lists
+every set that will call there, soonest first, plus the station itself with its
+next-set count; searching a set number jumps straight to that set. Arrow keys
+move through the results, `Enter` follows the selected set, and `[` / `]` step
+through sets without opening the board. `1` / `2` / `3` follow the nearest set
+on Red, Green or Blue.
+
+<img src="assets/readme/fleet-board-mobile.jpg" width="300" alt="Fleet board on a phone">
+
+On a phone the board stacks the corridors into one scrollable column and keeps
+the followed set highlighted.
 
 ## Stations & interchanges
 
@@ -160,6 +190,7 @@ js/infrastructure.js      U-girder viaduct, track slabs, piers, OCS masts
 js/station.js             canopy halls, platforms, signage, night lighting
 js/train.js               procedural 3-car set, livery, doors, cabs, lighting
 js/world.js               MapLibre ⇄ Three bridge, sky, night city layers
+js/lighting.js            sun/sky rig, day-night environment crossfade
 js/main.js                camera, placement, culling, HUD, controls
 ```
 

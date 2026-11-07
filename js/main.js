@@ -7,15 +7,15 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { MAP, TRAIN, SIM } from './config.js?v=20261107b';
-import { loadNetwork } from './network.js?v=20261107b';
-import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261107b';
-import { buildStations } from './station.js?v=20261107b';
-import { createTrain, createTrainProxy } from './train.js?v=20261107b';
-import { createWorld } from './world.js?v=20261107b';
-import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261107b';
-import { makeGlowRadial } from './materials.js?v=20261107b';
-import { mergeGeometries } from './geomutil.js?v=20261107b';
+import { MAP, TRAIN, SIM } from './config.js?v=20261107c';
+import { loadNetwork } from './network.js?v=20261107c';
+import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261107c';
+import { buildStations } from './station.js?v=20261107c';
+import { createTrain, createTrainProxy } from './train.js?v=20261107c';
+import { createWorld } from './world.js?v=20261107c';
+import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261107c';
+import { makeGlowRadial } from './materials.js?v=20261107c';
+import { mergeGeometries } from './geomutil.js?v=20261107c';
 
 const $ = (id) => document.getElementById(id);
 const els = {

@@ -150,6 +150,30 @@ function buildEnvironment(renderer, preset) {
   return target.texture;
 }
 
+// Both IBL maps are built from the same 1024 x 512 equirectangular canvas, so
+// they share CUBEUV_TEXEL_WIDTH / CUBEUV_TEXEL_HEIGHT and can be sampled with
+// identical coordinates. The stock chunk is patched to sample both maps and
+// mix them, which lets the environment fade on the GPU instead of swapping the
+// PMREM texture in one frame (that swap was the visible day <-> night pop on
+// the train, pillars and guideway).
+function buildEnvPatch() {
+  const chunk = THREE.ShaderChunk.envmap_physical_pars_fragment
+    .split('textureCubeUV( envMap,')
+    .join('crossfadeCubeUV( envMap,');
+  return chunk.replace(
+    '#ifdef USE_ENVMAP',
+    `#ifdef USE_ENVMAP
+	uniform sampler2D envMapNight;
+	uniform float envBlend;
+	vec4 crossfadeCubeUV( sampler2D envSampler, vec3 dir, float roughness ) {
+		vec4 dayColor = textureCubeUV( envSampler, dir, roughness );
+		if ( envBlend <= 0.0005 ) return dayColor;
+		vec4 nightColor = textureCubeUV( envMapNight, dir, roughness );
+		return mix( dayColor, nightColor, envBlend );
+	}`
+  );
+}
+
 export function createLighting({ scene, renderer, preset = 'day' }) {
   const state = { mode: preset, preset: PRESETS[preset] };
 
@@ -176,7 +200,40 @@ export function createLighting({ scene, renderer, preset = 'day' }) {
   const ambient = new THREE.AmbientLight(0xffffff, 0.15);
   scene.add(ambient);
 
-  let envTarget = null;
+  // Prebuild both environments once. The scene keeps the daytime map bound as
+  // `envMap`; every standard/physical material samples the night map alongside
+  // it and crossfades with a single uniform, so no PMREM rebuild ever happens
+  // on a transition frame.
+  const dayEnv = buildEnvironment(renderer, PRESETS.day);
+  const nightEnv = buildEnvironment(renderer, PRESETS.night);
+  const nightEnvUniform = { value: nightEnv };
+  const envBlendUniform = { value: preset === 'night' ? 1 : 0 };
+  scene.environment = dayEnv;
+
+  const envPatch = buildEnvPatch();
+
+  function patchEnvCrossfade(material) {
+    if (!material || !material.isMeshStandardMaterial || material.userData.envCrossfade) return;
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.envMapNight = nightEnvUniform;
+      shader.uniforms.envBlend = envBlendUniform;
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <envmap_physical_pars_fragment>',
+        envPatch
+      );
+    };
+    material.customProgramCacheKey = () => 'metro-env-crossfade';
+    material.userData.envCrossfade = true;
+    material.needsUpdate = true;
+  }
+
+  scene.traverse((obj) => {
+    const material = obj.material;
+    if (!material) return;
+    if (Array.isArray(material)) material.forEach(patchEnvCrossfade);
+    else patchEnvCrossfade(material);
+  });
+
   const temp = new THREE.Vector3();
 
   // -------------------------------------------------------------------------
@@ -252,10 +309,12 @@ export function createLighting({ scene, renderer, preset = 'day' }) {
   const fromValues = makeValues(PRESETS[preset] || PRESETS.day);
   const toValues = makeValues(PRESETS[preset] || PRESETS.day);
   let fade = null; // { elapsed, duration }
+  let fromBlend = envBlendUniform.value;
+  let toBlend = envBlendUniform.value;
 
   const hex = (color) => `#${color.getHexString()}`;
 
-  function applyCurrent(rebuildEnv) {
+  function applyCurrent() {
     sun.color.copy(current.sunColor);
     sun.intensity = current.sunIntensity;
     sun.shadow.intensity = current.shadowIntensity;
@@ -275,20 +334,6 @@ export function createLighting({ scene, renderer, preset = 'day' }) {
     // instead (see world.setTimeMode / the CSS grade).
     scene.fog = null;
 
-    if (rebuildEnv) {
-      if (envTarget) envTarget.dispose();
-      envTarget = buildEnvironment(renderer, {
-        ...PRESETS[state.mode] || PRESETS.day,
-        skyTop: hex(current.skyTop),
-        skyMid: hex(current.skyMid),
-        skyHorizon: hex(current.skyHorizon),
-        ground: hex(current.ground),
-        sunAzimuth: current.sunAzimuth,
-        sunElevation: current.sunElevation,
-        sunDisc: current.sunDisc,
-      });
-      scene.environment = envTarget;
-    }
     scene.environmentIntensity = current.envIntensity;
     renderer.toneMappingExposure = current.exposure;
 
@@ -303,13 +348,18 @@ export function createLighting({ scene, renderer, preset = 'day' }) {
     if (duration <= 0) {
       copyValues(current, makeValues(target));
       fade = null;
-      applyCurrent(true);
+      envBlendUniform.value = mode === 'night' ? 1 : 0;
+      fromBlend = envBlendUniform.value;
+      toBlend = envBlendUniform.value;
+      applyCurrent();
       return;
     }
     if (state.fadeTo === mode) return;
     state.fadeTo = mode;
     copyValues(fromValues, current);
     copyValues(toValues, makeValues(target));
+    fromBlend = envBlendUniform.value;
+    toBlend = mode === 'night' ? 1 : 0;
     fade = { elapsed: 0, duration };
   }
 
@@ -319,11 +369,13 @@ export function createLighting({ scene, renderer, preset = 'day' }) {
     const raw = Math.min(1, fade.elapsed / fade.duration);
     const t = raw * raw * (3 - 2 * raw);
     lerpValues(current, fromValues, toValues, t);
-    applyCurrent(false);
+    envBlendUniform.value = THREE.MathUtils.lerp(fromBlend, toBlend, t);
+    applyCurrent();
     if (raw >= 1) {
       fade = null;
       state.fadeTo = null;
-      applyCurrent(true);
+      envBlendUniform.value = toBlend;
+      applyCurrent();
     }
     return raw;
   }

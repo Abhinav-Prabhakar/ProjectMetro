@@ -10,8 +10,8 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { MAP } from './config.js?v=20261107b';
-import { createLighting, PRESETS } from './lighting.js?v=20261107b';
+import { MAP } from './config.js?v=20261107c';
+import { createLighting, PRESETS } from './lighting.js?v=20261107c';
 
 const ESRI_TILES =
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
@@ -24,7 +24,7 @@ function buildStyle(network) {
     // Every paint change below eases over the same window as the 3D rig and the
     // CSS grade, which is what makes the day ↔ night switch a single slow fade
     // rather than a slideshow of separate layers snapping.
-    transition: { duration: 4200, delay: 0 },
+    transition: { duration: 4800, delay: 0 },
     sky: {
       'sky-color': '#7fb0d8',
       'horizon-color': '#dbe3da',
@@ -436,7 +436,7 @@ export function createWorld({ network, sceneObjects, onProgress = () => {} }) {
     }
   }
 
-  function setTimeMode(mode, { duration = 4200 } = {}) {
+  function setTimeMode(mode, { duration = 4800 } = {}) {
     const night = mode === 'night';
     document.documentElement.dataset.timeMode = night ? 'night' : 'day';
     if (lighting) lighting.setMode(night ? 'night' : 'day', { duration: duration / 1000 });

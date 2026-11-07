@@ -11,8 +11,8 @@
 // and data fall back to a search-insensitive copy.
 // ---------------------------------------------------------------------------
 
-const BUILD = '20261107a';
-const VERSION = 'hmlive-2026-11-07-1';
+const BUILD = '20261107b';
+const VERSION = 'hmlive-2026-11-07-2';
 const SHELL = `hmlive-shell-${VERSION}`;
 const RUNTIME = `hmlive-runtime-${VERSION}`;
 const DATA = `hmlive-data-${VERSION}`;

@@ -7,15 +7,15 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { MAP, TRAIN, SIM } from './config.js?v=20261107a';
-import { loadNetwork } from './network.js?v=20261107a';
-import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261107a';
-import { buildStations } from './station.js?v=20261107a';
-import { createTrain, createTrainProxy } from './train.js?v=20261107a';
-import { createWorld } from './world.js?v=20261107a';
-import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261107a';
-import { makeGlowRadial } from './materials.js?v=20261107a';
-import { mergeGeometries } from './geomutil.js?v=20261107a';
+import { MAP, TRAIN, SIM } from './config.js?v=20261107b';
+import { loadNetwork } from './network.js?v=20261107b';
+import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261107b';
+import { buildStations } from './station.js?v=20261107b';
+import { createTrain, createTrainProxy } from './train.js?v=20261107b';
+import { createWorld } from './world.js?v=20261107b';
+import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261107b';
+import { makeGlowRadial } from './materials.js?v=20261107b';
+import { mergeGeometries } from './geomutil.js?v=20261107b';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -75,6 +75,15 @@ const els = {
   fleetLines: $('fleetLines'),
   fleetBoardTotal: $('fleetBoardTotal'),
   fleetBoardService: $('fleetBoardService'),
+  fleetSearch: $('fleetSearch'),
+  fleetSearchClear: $('fleetSearchClear'),
+  cmdBtn: $('cmdBtn'),
+  cmdKey: $('cmdKey'),
+  palette: $('palette'),
+  paletteInput: $('paletteInput'),
+  paletteResults: $('paletteResults'),
+  paletteScrim: $('paletteScrim'),
+  palettePanel: document.querySelector('#palette .palette-panel'),
   tsId: $('tsId'),
   tsSub: $('tsSub'),
   tsDot: $('tsDot'),
@@ -470,44 +479,121 @@ const picker = {
   open: false,
   items: [],
   index: 0,
+  query: '',
+  lastQuery: '',
   renderedAt: 0,
 };
+
+const palette = {
+  open: false,
+  index: 0,
+  results: [],
+  query: '',
+  returnFocus: null,
+  renderedAt: 0,
+};
+
+const IS_MAC = /mac|iphone|ipad|ipod/i.test(
+  (navigator.userAgentData && navigator.userAgentData.platform) ||
+    navigator.platform ||
+    navigator.userAgent ||
+    ''
+);
+if (els.cmdKey) els.cmdKey.textContent = IS_MAC ? '⌘K' : 'CTRL K';
 
 const escapeHtml = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const setNumber = (id) => String(id).replace(/^[A-Z]{2}_/, '');
 
-function pickerItem(v) {
+const normalizeText = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
+const fmtDistance = (metres) =>
+  metres < 1000 ? `${Math.max(0, Math.round(metres))} m` : `${(metres / 1000).toFixed(2)} km`;
+
+// One row in the board and palette. Everything the eye needs first is at the
+// top: the set, the station it is running into, and how long that will take.
+function pickerItem(v, nowSeconds) {
   const line = v.block.line;
+  const stops = v.pattern ? v.pattern.stops : [];
+  const lastIdx = Math.max(0, stops.length - 1);
+  const idx = clamp(v.nextIdx ?? 1, 0, lastIdx);
+  const next = stops.length ? line.stations[stops[idx].st] : null;
+  const prev = stops.length ? line.stations[stops[Math.max(0, idx - 1)].st] : null;
+  const terminusStop = stops.length ? stops[lastIdx] : null;
+  const terminus = terminusStop ? line.stations[terminusStop.st] : null;
   const dir = v.pattern ? v.pattern.dir : v.dir;
-  const to = dir > 0 ? line.to : line.from;
   const moving = v.phase === 'run' || v.phase === 'arriving';
+  const tNow = nowSeconds ?? istParts(state.epoch).sec;
+
+  let progress = 0;
+  if (v.kind !== 'turnback' && next && prev && next.s !== prev.s) {
+    progress = clamp((v.s - prev.s) / (next.s - prev.s), 0, 1);
+  }
+
+  const stateKey =
+    v.kind === 'turnback'
+      ? 'turning'
+      : v.phase === 'dwell'
+        ? 'dwelling'
+        : 'moving';
+  const stateLabel =
+    v.kind === 'turnback'
+      ? v.phase === 'shunt'
+        ? 'SHUNTING'
+        : 'TERMINUS'
+      : v.phase === 'dwell'
+        ? v.doors > 0.5
+          ? 'BOARDING'
+          : 'AT PLATFORM'
+        : v.phase === 'arriving'
+          ? 'ARRIVING'
+          : 'IN SERVICE';
+
+  const upcoming = [];
+  for (let k = idx; k <= lastIdx; k++) {
+    const station = line.stations[stops[k].st];
+    if (!station) continue;
+    upcoming.push({
+      name: station.name,
+      eta: v.trip ? Math.max(0, v.trip.s0 + stops[k].a - tNow) : 0,
+    });
+  }
+
   return {
     id: v.block.id,
     lineId: line.id,
+    lineName: line.name || `${line.id} LINE`,
     color: line.color,
     number: setNumber(v.block.id.split(':')[1] || v.block.id),
-    to,
+    to: terminus ? terminus.name : dir > 0 ? line.to : line.from,
+    next: next ? next.name : null,
+    nextName: next ? next.name : null,
+    prev: prev ? prev.name : null,
+    terminus: terminus ? terminus.name : dir > 0 ? line.to : line.from,
+    eta: v.trip ? Math.max(0, v.trip.s0 + (stops[idx] ? stops[idx].a : 0) - tNow) : 0,
+    stopsLeft: Math.max(0, lastIdx - idx),
+    distanceToNext: next ? Math.abs(next.s - v.s) : 0,
+    upcoming,
+    progress,
+    s: v.s,
     kmh: moving ? Math.round(v.v * 3.6) : 0,
-    state:
-      v.kind === 'turnback'
-        ? 'TURNING BACK'
-        : v.phase === 'dwell'
-          ? v.doors > 0.5
-            ? 'BOARDING'
-            : 'AT PLATFORM'
-          : v.phase === 'arriving'
-            ? 'ARRIVING'
-            : 'IN SERVICE',
+    state: stateLabel,
+    stateKey,
     distance: v.distance ?? 0,
     active: v.block.id === (state.followId || state.vehicle?.block.id),
   };
 }
 
 function fleetItems() {
+  const tNow = istParts(state.epoch).sec;
   return state.fleetAll
-    .map(pickerItem)
+    .map((v) => pickerItem(v, tNow))
     .sort(
       (a, b) =>
         LINE_ORDER.indexOf(a.lineId) - LINE_ORDER.indexOf(b.lineId) ||
@@ -642,28 +728,144 @@ function serviceStatus(epoch) {
   };
 }
 
-// Two columns, balanced by rows. With three corridors the split is rarely even
-// (RED 12, GREEN 3, BLUE 13), so try every assignment and keep the one whose
-// tallest column is shortest. The first corridor always stays in the left
-// column, so the reading order never flips.
-function packStacks(sections, columns = 2) {
-  if (sections.length <= 1) return [sections];
-  let best = null;
-  let bestHeight = Infinity;
-  const combos = 1 << sections.length;
-  for (let mask = 0; mask < combos; mask += 2) {
-    const stacks = Array.from({ length: columns }, () => []);
-    for (let i = 0; i < sections.length; i++) {
-      stacks[mask & (1 << i) ? 1 : 0].push(sections[i]);
-    }
-    if (stacks.some((stack) => stack.length === 0)) continue;
-    const height = Math.max(...stacks.map((stack) => stack.reduce((n, s) => n + s.rows, 0)));
-    if (height < bestHeight) {
-      bestHeight = height;
-      best = stacks;
-    }
+// ---------------------------------------------------------------------------
+// Icons
+//
+// The board and the palette use the same small set of line drawings. They are
+// deliberately tiny and monochrome so the corridor colour stays the loudest
+// thing in a row.
+// ---------------------------------------------------------------------------
+
+const GLYPH = {
+  train:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 16V9.5A3.5 3.5 0 0 1 8.5 6h7A3.5 3.5 0 0 1 19 9.5V16"/><path d="M4 16h16M8 19l-1.6 2M16 19l1.6 2"/><circle cx="8.4" cy="15.2" r="0.7" fill="currentColor" stroke="none"/><circle cx="15.6" cy="15.2" r="0.7" fill="currentColor" stroke="none"/></svg>',
+  station:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s6-5.1 6-10.2A6 6 0 0 0 6 10.8C6 15.9 12 21 12 21Z"/><circle cx="12" cy="10.6" r="2.1"/></svg>',
+  arrow:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12h14M13 6.5l5.5 5.5L13 17.5"/></svg>',
+  clock:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 7.6V12l3 1.8"/></svg>',
+  flag:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 21V4"/><path d="M6 4.8h10.8l-1.9 3.4 1.9 3.4H6"/></svg>',
+  moving:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7.5l4.5 4.5L4 16.5M11 7.5l4.5 4.5L11 16.5"/></svg>',
+  dwelling:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5h12v17H6z"/><path d="M10 12h.01"/></svg>',
+  turning:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12a7 7 0 1 1-2.2-5.1"/><path d="M19 4.5V9h-4.5"/></svg>',
+  search:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.2"/><path d="M15.5 15.5 21 21"/></svg>',
+};
+
+const stateGlyph = (item) => GLYPH[item.stateKey] || GLYPH.moving;
+
+const fleetNextName = (item) => item.nextName || item.terminus || '—';
+
+function fleetAria(item, nextName, eta) {
+  return [
+    `Set ${item.number}`,
+    item.lineName,
+    `next ${nextName}`,
+    `towards ${item.terminus}`,
+    item.state,
+    `ETA ${eta}`,
+  ].join(', ');
+}
+
+function fleetTitle(item, nextName) {
+  return `${item.state} · ${item.kmh} km/h · ${fmtDistance(item.distanceToNext)} to ${nextName}`;
+}
+
+function fleetRevealHTML(item) {
+  const stopsLabel = item.stopsLeft === 1 ? 'STOP' : 'STOPS';
+  return (
+    `<span class="fr-kv"><b>${escapeHtml(fmtDistance(item.distanceToNext))}</b> <em>TO NEXT</em></span>` +
+    `<span class="fr-kv"><b>${item.kmh}</b> <em>KM/H</em></span>` +
+    `<span class="fr-kv"><b>${item.stopsLeft}</b> <em>${stopsLabel}</em></span>` +
+    `<span class="fr-follow">FOLLOW <kbd>↵</kbd></span>`
+  );
+}
+
+function fleetRowHTML(item, index, showLine = false) {
+  const nextName = fleetNextName(item);
+  const eta = fmtTime(item.eta);
+  const classes = [
+    'fleet-row',
+    item.stateKey,
+    item.active ? 'active' : '',
+    index === picker.index ? 'cursor' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const aria = fleetAria(item, nextName, eta);
+
+  return (
+    `<li><button class="${classes}" type="button" data-index="${index}" data-id="${escapeHtml(item.id)}"` +
+    ` style="--c:${item.color};--p:${item.progress.toFixed(3)}"` +
+    ` aria-label="${escapeHtml(aria)}"${item.active ? ' aria-current="true"' : ''}` +
+    ` title="${escapeHtml(fleetTitle(item, nextName))}">` +
+    `<span class="fr-head">` +
+    `<span class="fr-id"><i></i>${showLine ? `<span class="fr-line-code">${item.lineId[0]}</span>` : ''}${escapeHtml(item.number)}</span>` +
+    `<span class="fr-eta">${GLYPH.clock}${eta}</span>` +
+    `</span>` +
+    `<span class="fr-next">${GLYPH.arrow}${escapeHtml(nextName)}</span>` +
+    `<span class="fr-track" aria-hidden="true"><i class="fr-rail"></i><i class="fr-fill"></i><i class="fr-train"></i></span>` +
+    `<span class="fr-foot">` +
+    `<span class="fr-state" title="${escapeHtml(item.state)}">${stateGlyph(item)}</span>` +
+    `<span class="fr-term">${GLYPH.flag}${escapeHtml(item.terminus)}</span>` +
+    `</span>` +
+    `<span class="fr-reveal">${fleetRevealHTML(item)}</span>` +
+    `</button></li>`
+  );
+}
+
+/**
+ * Keep the live values moving without replacing the row nodes. Rebuilding the
+ * board every few seconds would throw away hover, focus and the row's open
+ * detail strip mid-interaction.
+ */
+function patchFleetRow(row, item, index) {
+  const nextName = fleetNextName(item);
+  const eta = fmtTime(item.eta);
+  row.dataset.index = index;
+  row.dataset.id = item.id;
+  row.style.setProperty('--p', item.progress.toFixed(3));
+  row.classList.toggle('active', item.active);
+  row.classList.toggle('cursor', index === picker.index);
+  for (const key of ['moving', 'dwelling', 'turning']) row.classList.toggle(key, item.stateKey === key);
+  if (item.active) row.setAttribute('aria-current', 'true');
+  else row.removeAttribute('aria-current');
+  row.setAttribute('aria-label', fleetAria(item, nextName, eta));
+  row.title = fleetTitle(item, nextName);
+
+  const etaEl = row.querySelector('.fr-eta');
+  if (etaEl) etaEl.innerHTML = `${GLYPH.clock}${eta}`;
+  const nextEl = row.querySelector('.fr-next');
+  if (nextEl) nextEl.innerHTML = `${GLYPH.arrow}${escapeHtml(nextName)}`;
+  const stateEl = row.querySelector('.fr-state');
+  if (stateEl) {
+    stateEl.innerHTML = stateGlyph(item);
+    stateEl.title = item.state;
   }
-  return best || [sections];
+  const termEl = row.querySelector('.fr-term');
+  if (termEl) termEl.innerHTML = `${GLYPH.flag}${escapeHtml(item.terminus)}`;
+  const revealEl = row.querySelector('.fr-reveal');
+  if (revealEl) revealEl.innerHTML = fleetRevealHTML(item);
+}
+
+function refreshFleetRows() {
+  const rows = [...els.fleetList.querySelectorAll('.fleet-row')];
+  if (rows.length !== picker.items.length) return false;
+  rows.forEach((row, index) => patchFleetRow(row, picker.items[index], index));
+  updateFleetScrollFade();
+  picker.renderedAt = performance.now();
+  return true;
+}
+
+function matchesBoardItem(item, q) {
+  return [item.number, item.lineId, item.lineName, item.nextName, item.terminus, item.state]
+    .map(normalizeText)
+    .some((field) => field.includes(q));
 }
 
 function renderClosedFleet(status) {
@@ -679,6 +881,15 @@ function renderClosedFleet(status) {
         `<span class="fc-time">${fmtClock(openBase + item.first)}</span></li>`
     )
     .join('');
+
+  els.fleetBoard?.classList.add('closed');
+  els.fleetBoard?.classList.remove('has-more');
+  els.fleetList.classList.remove('searching');
+  if (els.fleetSearch) {
+    els.fleetSearch.disabled = true;
+    els.fleetSearch.placeholder = 'SERVICE CLOSED';
+  }
+  if (els.fleetSearchClear) els.fleetSearchClear.hidden = true;
 
   els.fleetList.innerHTML =
     `<div class="fleet-closed">` +
@@ -703,59 +914,107 @@ function renderFleet() {
   if (status && status.closed) {
     picker.items = [];
     picker.index = 0;
+    picker.signature = null;
     renderClosedFleet(status);
     picker.renderedAt = performance.now();
     return;
   }
 
-  const items = fleetItems();
+  els.fleetBoard?.classList.remove('closed');
+  if (els.fleetSearch) {
+    els.fleetSearch.disabled = false;
+    els.fleetSearch.placeholder = 'SEARCH NEXT STATION OR SET';
+  }
+
+  const all = fleetItems();
+  const query = picker.query.trim();
+  const q = normalizeText(query);
+  const items = q ? all.filter((item) => matchesBoardItem(item, q)) : all;
   picker.items = items;
   if (picker.index >= items.length) picker.index = 0;
+  if (els.fleetSearchClear) els.fleetSearchClear.hidden = !query;
+  updateFleetTotals(items, all, q);
+  if (els.fleetBoardService) els.fleetBoardService.textContent = serviceName();
 
-  const indexOf = new Map(items.map((item, i) => [item.id, i]));
-  const sections = LINE_ORDER.map((lineId) => {
-    const meta = LINE_META[lineId];
-    const rows = items.filter((item) => item.lineId === lineId);
-    const body = rows.length
-      ? rows
-          .map((item) => {
-            const i = indexOf.get(item.id);
-            const dist =
-              item.distance < 1000
-                ? `${Math.round(item.distance)} m`
-                : `${(item.distance / 1000).toFixed(1)} km`;
-            const metaText = item.kmh > 0 ? `${item.kmh} km/h` : item.state;
-            return (
-              `<li><button class="fleet-row${item.active ? ' active' : ''}${i === picker.index ? ' cursor' : ''}"` +
-              ` data-index="${i}" data-id="${escapeHtml(item.id)}" style="--c:${item.color}">` +
-              `<span class="fleet-row-id"><i></i>${escapeHtml(item.number)}</span>` +
-              `<span class="fleet-row-dest">TO ${escapeHtml(item.to.toUpperCase())}</span>` +
-              `<b class="fleet-row-speed">${escapeHtml(metaText)}</b>` +
-              `<em class="fleet-row-dist">${escapeHtml(dist)}</em>` +
-              `</button></li>`
-            );
-          })
-          .join('')
-      : '<li class="fleet-empty">NO SETS RUNNING</li>';
-    return {
-      rows: rows.length,
-      html:
-        `<section class="fleet-col" style="--c:${meta.color}">` +
-        `<header class="fleet-col-head"><span class="fleet-col-name"><i></i>${meta.name}</span>` +
-        `<span class="fleet-col-count">${rows.length}</span></header>` +
-        `<ul class="fleet-list">${body}</ul></section>`,
-    };
-  });
+  // Live refresh: same search, same set list. Patch the values in place so a
+  // hovered or focused row keeps its identity. Static empty states are left
+  // alone too, so the palette hand-off button stays clickable.
+  const signature = `${q}|${items.map((item) => item.id).join(',')}`;
+  if (picker.signature === signature) {
+    const rows = els.fleetList.querySelector('.fleet-row');
+    const empty = els.fleetList.querySelector('.fleet-empty-state');
+    if (empty || (rows && refreshFleetRows())) {
+      picker.renderedAt = performance.now();
+      return;
+    }
+  }
+  picker.signature = signature;
 
   const scrollTop = els.fleetList.scrollTop;
-  els.fleetList.innerHTML = packStacks(sections)
-    .map((stack) => `<div class="fleet-stack">${stack.map((s) => s.html).join('')}</div>`)
-    .join('');
-  els.fleetList.scrollTop = scrollTop;
+  const qChanged = picker.lastQuery !== query;
+  picker.lastQuery = query;
 
-  if (els.fleetBoardTotal) els.fleetBoardTotal.textContent = String(items.length);
-  if (els.fleetBoardService) els.fleetBoardService.textContent = serviceName();
+  if (!items.length) {
+    els.fleetList.classList.toggle('searching', !!q);
+    // Nothing is running *into* that station right now. The palette can still
+    // find every set that will call there later, so hand the query over instead
+    // of leaving a dead end.
+    const calling = q ? all.filter((item) => bestUpcomingMatch(item, q)).length : 0;
+    els.fleetList.innerHTML = calling
+      ? `<button class="fleet-empty-state fleet-empty-action" type="button" data-query="${escapeHtml(query)}">` +
+        `${GLYPH.search}` +
+        `<b>${calling} set${calling === 1 ? '' : 's'} call at “${escapeHtml(query)}”</b>` +
+        `<span>OPEN COMMAND PALETTE</span></button>`
+      : `<div class="fleet-empty-state">${GLYPH.search}` +
+        `<b>No sets match “${escapeHtml(query)}”</b>` +
+        `<span>Try a next station, corridor or set number</span></div>`;
+  } else if (q) {
+    els.fleetList.classList.add('searching');
+    const rows = items.map((item, i) => fleetRowHTML(item, i, true)).join('');
+    els.fleetList.innerHTML =
+      `<section class="fleet-col fleet-results">` +
+      `<header class="fleet-col-head"><span class="fleet-col-name">SEARCH MATCHES</span>` +
+      `<span class="fleet-col-count">${items.length} / ${all.length}</span></header>` +
+      `<ul class="fleet-list">${rows}</ul></section>`;
+  } else {
+    els.fleetList.classList.remove('searching');
+    const indexOf = new Map(items.map((item, i) => [item.id, i]));
+    els.fleetList.innerHTML = LINE_ORDER.map((lineId) => {
+      const meta = LINE_META[lineId];
+      const rows = items.filter((item) => item.lineId === lineId);
+      const body = rows.length
+        ? rows.map((item) => fleetRowHTML(item, indexOf.get(item.id))).join('')
+        : '<li class="fleet-empty">NO SETS RUNNING</li>';
+      return (
+        `<section class="fleet-col" style="--c:${meta.color}">` +
+        `<header class="fleet-col-head"><span class="fleet-col-name">` +
+        `<span class="fleet-line-mark">${lineId[0]}</span>${meta.name}</span>` +
+        `<span class="fleet-col-count">${rows.length}</span></header>` +
+        `<ul class="fleet-list">${body}</ul></section>`
+      );
+    }).join('');
+  }
+
+  els.fleetList.scrollTop = qChanged ? 0 : scrollTop;
+
   picker.renderedAt = performance.now();
+  updateFleetScrollFade();
+}
+
+function updateFleetTotals(items, all, q) {
+  if (!els.fleetBoardTotal) return;
+  els.fleetBoardTotal.innerHTML =
+    q && items.length !== all.length
+      ? `${items.length}<span class="fleet-total-of">/${all.length}</span>`
+      : String(all.length);
+}
+
+/** Show the soft bottom fade only while the corridor columns have more below. */
+function updateFleetScrollFade() {
+  const list = els.fleetList;
+  if (!list || !els.fleetBoard) return;
+  const more = list.scrollHeight - list.scrollTop - list.clientHeight > 6;
+  els.fleetBoard.classList.toggle('has-more', more);
 }
 
 function updatePickerLabel() {
@@ -776,7 +1035,9 @@ function updatePickerLabel() {
   if (v) {
     const item = pickerItem(v);
     els.tsId.textContent = item.number;
-    els.tsSub.textContent = `${item.lineId} · TO ${item.to.toUpperCase()}`;
+    els.tsSub.textContent = item.nextName
+      ? `${item.lineId} · NEXT ${item.nextName.toUpperCase()}`
+      : `${item.lineId} · TO ${item.to.toUpperCase()}`;
   } else {
     els.tsId.textContent = 'SELECT SET';
     els.tsSub.textContent = `${line.id} · NEAREST`;
@@ -794,25 +1055,62 @@ function setFleetOpen(open) {
   els.fleetBtn.classList.toggle('open', open);
   els.fleetBtn.setAttribute('aria-expanded', String(open));
   if (open) {
+    picker.query = '';
+    picker.lastQuery = '';
+    if (els.fleetSearch) els.fleetSearch.value = '';
     picker.index = Math.max(0, fleetItems().findIndex((x) => x.active));
     renderFleet();
     els.fleetBoard.hidden = false;
-    els.fleetBtn.focus({ preventScroll: true });
     requestAnimationFrame(() => {
       const active = els.fleetList.querySelector('.fleet-row.cursor');
-      if (active) active.scrollIntoView({ block: 'nearest' });
+      scrollIntoBox(els.fleetList, active, 'center');
+      updateFleetScrollFade();
+      if (els.fleetSearch && !els.fleetSearch.disabled) els.fleetSearch.focus({ preventScroll: true });
+      else els.fleetBtn.focus({ preventScroll: true });
     });
   } else {
     els.fleetBoard.hidden = true;
+    picker.query = '';
+    picker.lastQuery = '';
+    if (els.fleetSearch) els.fleetSearch.value = '';
+    if (els.fleetBoard.contains(document.activeElement) || document.activeElement === els.fleetSearch) {
+      els.fleetBtn.focus({ preventScroll: true });
+    }
   }
+}
+
+/**
+ * Keep a row in view by scrolling its own list, never the page. The stage is a
+ * clipped scroll container, so a native scrollIntoView would drag the whole HUD
+ * upward when the board opens.
+ */
+function scrollIntoBox(box, item, block = 'nearest') {
+  if (!box || !item) return;
+  const b = box.getBoundingClientRect();
+  const r = item.getBoundingClientRect();
+  if (block === 'center') {
+    const offset = r.top - b.top + box.scrollTop;
+    box.scrollTop = offset - (box.clientHeight - r.height) / 2;
+  } else if (r.top < b.top) {
+    box.scrollTop += r.top - b.top;
+  } else if (r.bottom > b.bottom) {
+    box.scrollTop += r.bottom - b.bottom;
+  }
+}
+
+function syncPickerCursor() {
+  const rows = els.fleetList.querySelectorAll('.fleet-row');
+  for (const row of rows) {
+    row.classList.toggle('cursor', Number(row.dataset.index) === picker.index);
+  }
+  const active = els.fleetList.querySelector('.fleet-row.cursor');
+  scrollIntoBox(els.fleetList, active, 'nearest');
 }
 
 function movePicker(step) {
   if (!picker.items.length) return;
   picker.index = (picker.index + step + picker.items.length) % picker.items.length;
-  renderFleet();
-  const active = els.fleetList.querySelector('.fleet-row.cursor');
-  if (active) active.scrollIntoView({ block: 'nearest' });
+  syncPickerCursor();
 }
 
 function choosePicker(index) {
@@ -821,6 +1119,280 @@ function choosePicker(index) {
   setFleetOpen(false);
   selectVehicle(item.id);
   recenterCamera();
+}
+
+// ---------------------------------------------------------------------------
+// Command palette
+//
+// Cmd/Ctrl K opens a single search over everything that moves. Typing a
+// station name ranks the sets that will call there, nearest arrival first;
+// the station itself is offered as a second kind of result.
+// ---------------------------------------------------------------------------
+
+function scoreField(value, q) {
+  if (!q) return 0;
+  const text = normalizeText(value);
+  if (!text) return -1;
+  if (text === q) return 120;
+  if (text.startsWith(q)) return 90;
+  if (text.split(/\s+/).some((word) => word.startsWith(q))) return 70;
+  const at = text.indexOf(q);
+  if (at >= 0) return 44 - Math.min(20, at);
+  return -1;
+}
+
+function bestUpcomingMatch(item, q) {
+  let best = null;
+  const upcoming = item.upcoming || [];
+  for (let index = 0; index < upcoming.length; index++) {
+    const stop = upcoming[index];
+    const score = scoreField(stop.name, q);
+    if (score < 0) continue;
+    if (!best || score > best.score) best = { ...stop, score, index };
+  }
+  return best;
+}
+
+function trainScore(item, q) {
+  if (!q) return 0;
+  const next = scoreField(item.nextName, q);
+  const destination = scoreField(item.terminus, q);
+  const number = scoreField(item.number, q);
+  const line = Math.max(scoreField(item.lineId, q), scoreField(item.lineName, q));
+  const upcoming = bestUpcomingMatch(item, q);
+  return Math.max(next, destination, number, line, upcoming ? upcoming.score : -1);
+}
+
+function stationScore(station, q) {
+  return scoreField(station.name, q);
+}
+
+function highlighted(text, q) {
+  const raw = String(text ?? '');
+  if (!q) return escapeHtml(raw);
+  const at = raw.toLowerCase().indexOf(q);
+  if (at < 0) return escapeHtml(raw);
+  return (
+    escapeHtml(raw.slice(0, at)) +
+    `<mark>${escapeHtml(raw.slice(at, at + q.length))}</mark>` +
+    escapeHtml(raw.slice(at + q.length))
+  );
+}
+
+function paletteSets(q) {
+  const items = fleetItems();
+  if (!q) {
+    return items
+      .slice()
+      .sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0) || a.distance - b.distance)
+      .slice(0, 7);
+  }
+  const etaAtMatch = (item) => bestUpcomingMatch(item, q)?.eta ?? item.eta;
+  return items
+    .map((item) => ({ item, score: trainScore(item, q) }))
+    .filter((entry) => entry.score >= 0)
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        etaAtMatch(a.item) - etaAtMatch(b.item) ||
+        a.item.distance - b.item.distance
+    )
+    .slice(0, 7)
+    .map((entry) => entry.item);
+}
+
+function paletteStations(q) {
+  if (!q || !network) return [];
+  return network.stations
+    .map((station) => ({ station, score: stationScore(station, q) }))
+    .filter((entry) => entry.score >= 0)
+    .sort((a, b) => b.score - a.score || a.station.name.localeCompare(b.station.name))
+    .slice(0, 5);
+}
+
+function stationHeadingStats(station) {
+  const name = normalizeText(station.name);
+  let count = 0;
+  let soonest = Infinity;
+  for (const item of fleetItems()) {
+    const stop = (item.upcoming || []).find((entry) => normalizeText(entry.name) === name);
+    if (!stop) continue;
+    count++;
+    if (stop.eta < soonest) soonest = stop.eta;
+  }
+  return { count, soonest };
+}
+
+function paletteTrainRow(item, index, q) {
+  const match = bestUpcomingMatch(item, q);
+  const nextName = match && normalizeText(match.name) !== normalizeText(item.nextName) ? match.name : item.nextName;
+  const stopsAhead = match ? match.index + 1 : 0;
+  const meta =
+    match && match.index > 0
+      ? `${stopsAhead} STOPS`
+      : item.kmh > 0
+        ? `${item.kmh} KM/H`
+        : item.state;
+  const focusEta = match && normalizeText(match.name) === normalizeText(item.nextName) ? item.eta : match ? match.eta : item.eta;
+  return (
+    `<button class="cmd-row" type="button" role="option" id="cmd-opt-${index}" data-index="${index}"` +
+    ` aria-selected="${index === palette.index}" style="--rc:${item.color}">` +
+    `<span class="cmd-glyph">${GLYPH.train}</span>` +
+    `<span class="cmd-main">` +
+    `<span class="cmd-title"><b>${highlighted(item.number, q)}</b><em>${escapeHtml(item.lineId)}</em></span>` +
+    `<span class="cmd-sub">${GLYPH.arrow}<span>${highlighted(nextName || item.terminus, q)}</span>` +
+    `<span class="cmd-dest">→ ${escapeHtml(item.terminus)}</span></span>` +
+    `</span>` +
+    `<span class="cmd-meta"><b>${fmtTime(focusEta)}</b><em>${escapeHtml(meta)}</em></span>` +
+    `</button>`
+  );
+}
+
+function paletteStationRow(station, index, q) {
+  const { count, soonest } = stationHeadingStats(station);
+  const lineNames = station.lines.map((id) => LINE_META[id]?.name || id).join(' · ');
+  return (
+    `<button class="cmd-row" type="button" role="option" id="cmd-opt-${index}" data-index="${index}"` +
+    ` aria-selected="${index === palette.index}" style="--rc:${LINE_META[station.lines[0]]?.color || '#58b6ff'}">` +
+    `<span class="cmd-glyph">${GLYPH.station}</span>` +
+    `<span class="cmd-main">` +
+    `<span class="cmd-title"><b>${highlighted(station.name, q)}</b><em>${escapeHtml(lineNames)}</em></span>` +
+    `<span class="cmd-sub"><span class="cmd-dest">${count ? `NEXT SET IN ${fmtTime(soonest)}` : 'NO SETS CALLING'}</span></span>` +
+    `</span>` +
+    `<span class="cmd-meta"><b>${count || '—'}</b><em>${count ? 'SETS' : 'STANDBY'}</em></span>` +
+    `</button>`
+  );
+}
+
+function renderPalette() {
+  if (!els.paletteResults) return;
+  const q = normalizeText(palette.query);
+  const sets = paletteSets(q);
+  const stations = paletteStations(q);
+  const results = [
+    ...sets.map((item) => ({ type: 'train', item })),
+    ...stations.map((entry) => ({ type: 'station', station: entry.station })),
+  ];
+  palette.results = results;
+  if (palette.index >= results.length) palette.index = 0;
+
+  if (!results.length) {
+    els.paletteResults.innerHTML =
+      `<div class="cmd-empty">${GLYPH.search}` +
+      `<b>Nothing on that frequency</b>` +
+      `<span>Try a station, corridor or set number</span></div>`;
+  } else {
+    const setRows = sets.length
+      ? `<div class="cmd-group"><div class="cmd-group-head"><span>SETS</span><span>NEXT / ETA</span></div>` +
+        sets.map((item, i) => paletteTrainRow(item, i, q)).join('') +
+        `</div>`
+      : '';
+    const stationRows = stations.length
+      ? `<div class="cmd-group"><div class="cmd-group-head"><span>STATIONS</span><span>SERVICE</span></div>` +
+        stations.map((entry, i) => paletteStationRow(entry.station, sets.length + i, q)).join('') +
+        `</div>`
+      : '';
+    els.paletteResults.innerHTML = setRows + stationRows;
+  }
+
+  const cursor = results[palette.index];
+  const accent =
+    cursor?.type === 'train'
+      ? cursor.item.color
+      : cursor?.type === 'station'
+        ? LINE_META[cursor.station.lines[0]]?.color || '#58b6ff'
+        : '#58b6ff';
+  els.palettePanel?.style.setProperty('--pc', accent);
+  els.paletteInput?.setAttribute('aria-activedescendant', results.length ? `cmd-opt-${palette.index}` : '');
+
+  const active = els.paletteResults.querySelector('.cmd-row[aria-selected="true"]');
+  scrollIntoBox(els.paletteResults, active, 'nearest');
+  palette.renderedAt = performance.now();
+}
+
+function openPalette(initialQuery = '') {
+  if (!els.palette) return;
+  if (picker.open) setFleetOpen(false);
+  updateFleetPulse(true);
+  palette.open = true;
+  palette.query = initialQuery;
+  palette.index = 0;
+  palette.returnFocus = document.activeElement;
+  els.palette.hidden = false;
+  if (els.cmdBtn) els.cmdBtn.setAttribute('aria-expanded', 'true');
+  if (els.paletteInput) els.paletteInput.value = initialQuery;
+  renderPalette();
+  requestAnimationFrame(() => {
+    els.paletteInput?.focus({ preventScroll: true });
+    els.paletteInput?.select();
+  });
+}
+
+function closePalette({ restoreFocus = true } = {}) {
+  if (!palette.open) return;
+  palette.open = false;
+  els.palette.hidden = true;
+  if (els.cmdBtn) els.cmdBtn.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) {
+    const back = palette.returnFocus;
+    if (back && back.isConnected && back.focus && back.offsetParent !== null) {
+      back.focus({ preventScroll: true });
+    } else {
+      els.cmdBtn?.focus({ preventScroll: true });
+    }
+  }
+  palette.returnFocus = null;
+}
+
+function selectStation(station) {
+  const name = normalizeText(station.name);
+  const items = fleetItems();
+  let best = null;
+  for (const item of items) {
+    const stop = (item.upcoming || []).find((s) => normalizeText(s.name) === name);
+    if (!stop) continue;
+    if (!best || stop.eta < best.eta) best = { item, eta: stop.eta };
+  }
+  if (!best) {
+    for (const lineId of station.lines) {
+      const line = network.byId.get(lineId);
+      if (!line) continue;
+      const at = line.stations.find((s) => normalizeText(s.name) === name);
+      if (!at) continue;
+      for (const item of items) {
+        if (item.lineId !== lineId) continue;
+        const distance = Math.abs(item.s - at.s);
+        if (!best || distance < best.eta) best = { item, eta: distance };
+      }
+    }
+  }
+  if (!best) return false;
+  selectVehicle(best.item.id);
+  return true;
+}
+
+function choosePalette(index) {
+  const result = palette.results[index];
+  if (!result) return;
+  const selected =
+    result.type === 'train' ? selectVehicleAndReturn(result.item.id) : selectStation(result.station);
+  if (selected === false) {
+    palette.index = index;
+    renderPalette();
+    return;
+  }
+  closePalette({ restoreFocus: false });
+  recenterCamera();
+  focusCommandButton();
+}
+
+function selectVehicleAndReturn(id) {
+  selectVehicle(id);
+  return state.followId === id;
+}
+
+function focusCommandButton() {
+  requestAnimationFrame(() => els.cmdBtn?.focus({ preventScroll: true }));
 }
 
 function selectNearestTrain(lineId, point, initial = false) {
@@ -851,7 +1423,10 @@ function selectNearestTrain(lineId, point, initial = false) {
   state.followId = best.block.id;
   state.vehicle = best.st;
   state.doors = 0;
-  if (!initial) state.hasUserSelected = true;
+  if (!initial) {
+    state.hasUserSelected = true;
+    flashSetPill();
+  }
   cam.init = false;
   syncLineUI();
   return true;
@@ -865,6 +1440,37 @@ function selectVehicle(blockId) {
   state.hasUserSelected = true;
   cam.init = false;
   syncLineUI();
+  flashSetPill();
+}
+
+function flashSetPill() {
+  if (!els.fleetBtn) return;
+  els.fleetBtn.classList.remove('pop');
+  void els.fleetBtn.offsetWidth;
+  els.fleetBtn.classList.add('pop');
+}
+
+function selectLineAndNearest(lineId) {
+  const line = network.byId.get(lineId);
+  if (!line) return false;
+  const found = selectNearestTrain(lineId, measureFocus(), false);
+  cam.init = false;
+  recenterCamera();
+  return found;
+}
+
+// [ and ] walk the live fleet in reading order. The set that is currently
+// followed is the anchor, so repeated taps never lose their place.
+function cycleTrain(step) {
+  const items = fleetItems();
+  if (!items.length) return false;
+  const currentId = state.followId || state.vehicle?.block.id;
+  let index = items.findIndex((item) => item.id === currentId);
+  index = index < 0 ? (step > 0 ? 0 : items.length - 1) : (index + step + items.length) % items.length;
+  if (picker.open) setFleetOpen(false);
+  selectVehicle(items[index].id);
+  recenterCamera();
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1140,6 +1746,7 @@ function updateFleetPulse(force = false) {
       : serviceName();
   }
   if (picker.open && now - picker.renderedAt > 2500) renderFleet();
+  if (palette.open && now - palette.renderedAt > 3000) renderPalette();
 }
 
 function applyServiceState(status) {
@@ -1447,22 +2054,75 @@ function bindControls() {
     els.lineSwitch.addEventListener('click', (e) => {
       const btn = e.target.closest('button[data-line]');
       if (!btn) return;
-      const line = network.byId.get(btn.dataset.line);
-      const p = line.getPoint(line.length / 2);
-      selectNearestTrain(btn.dataset.line, p, false);
-      cam.init = false;
-      recenterCamera();
+      selectLineAndNearest(btn.dataset.line);
     });
   }
+
+  if (els.cmdBtn) {
+    els.cmdBtn.addEventListener('click', () => {
+      if (palette.open) closePalette();
+      else openPalette();
+    });
+  }
+
+  if (els.palette) {
+    els.paletteScrim?.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      closePalette();
+    });
+    els.palette.addEventListener('pointerdown', (e) => {
+      if (!e.target.closest('.palette-panel')) closePalette();
+    });
+    els.paletteResults?.addEventListener('click', (e) => {
+      const row = e.target.closest('.cmd-row');
+      if (!row) return;
+      choosePalette(Number(row.dataset.index));
+    });
+    els.paletteInput?.addEventListener('input', () => {
+      palette.query = els.paletteInput.value;
+      palette.index = 0;
+      renderPalette();
+    });
+    els.paletteInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!palette.results.length) return;
+        palette.index = (palette.index + (e.key === 'ArrowDown' ? 1 : -1) + palette.results.length) % palette.results.length;
+        renderPalette();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        choosePalette(palette.index);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closePalette();
+      }
+    });
+  }
+
   if (els.fleetBtn && els.fleetBoard) {
     els.fleetBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       setFleetOpen(!picker.open);
     });
     els.fleetBoard.addEventListener('click', (e) => {
+      const action = e.target.closest('.fleet-empty-action');
+      if (action) {
+        openPalette(action.dataset.query || '');
+        return;
+      }
       const row = e.target.closest('.fleet-row');
       if (!row) return;
       choosePicker(Number(row.dataset.index));
+    });
+    els.fleetBoard.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        movePicker(e.key === 'ArrowDown' ? 1 : -1);
+        const cursor = els.fleetList.querySelector('.fleet-row.cursor');
+        if (cursor) cursor.focus({ preventScroll: true });
+      }
     });
     if (els.fleetClose) {
       els.fleetClose.addEventListener('click', () => {
@@ -1471,7 +2131,7 @@ function bindControls() {
       });
     }
     document.addEventListener('pointerdown', (e) => {
-      if (picker.open && !els.dock.contains(e.target) && !els.fleetBoard.contains(e.target)) {
+      if (picker.open && !els.dock.contains(e.target) && !els.fleetBoard.contains(e.target) && !els.fleetSearch?.contains(e.target)) {
         setFleetOpen(false);
       }
     });
@@ -1489,13 +2149,99 @@ function bindControls() {
         els.fleetBtn.focus();
       }
     });
+
+    els.fleetList.addEventListener('scroll', updateFleetScrollFade, { passive: true });
+    let resizeFrame = 0;
+    window.addEventListener('resize', () => {
+      if (resizeFrame) return;
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = 0;
+        updateFleetScrollFade();
+        if (!picker.open) return;
+        const cursor = els.fleetList.querySelector('.fleet-row.cursor');
+        scrollIntoBox(els.fleetList, cursor, 'nearest');
+      });
+    });
+    els.fleetSearch?.addEventListener('input', () => {
+      picker.query = els.fleetSearch.value;
+      picker.index = 0;
+      renderFleet();
+    });
+    els.fleetSearch?.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        e.stopPropagation();
+        movePicker(e.key === 'ArrowDown' ? 1 : -1);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        choosePicker(picker.index);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (els.fleetSearch.value) {
+          els.fleetSearch.value = '';
+          picker.query = '';
+          picker.index = 0;
+          renderFleet();
+        } else {
+          setFleetOpen(false);
+          els.fleetBtn.focus();
+        }
+      }
+    });
+    els.fleetSearchClear?.addEventListener('click', () => {
+      if (!els.fleetSearch) return;
+      els.fleetSearch.value = '';
+      picker.query = '';
+      picker.index = 0;
+      renderFleet();
+      els.fleetSearch.focus({ preventScroll: true });
+    });
   }
 
   window.addEventListener('keydown', (e) => {
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+    const target = e.target;
+    const typing =
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      target?.isContentEditable;
+    const mod = e.metaKey || e.ctrlKey;
+
+    // The palette is the one shortcut that works from inside a field.
+    if (mod && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      if (palette.open) closePalette();
+      else openPalette();
+      return;
+    }
+    if (palette.open) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closePalette();
+      }
+      return;
+    }
+    if (typing) return;
+    if (mod || e.altKey) return;
+
+    const onButton = target instanceof Element && !!target.closest('button, a');
     if (e.code === 'Space') {
+      if (onButton) return; // let the focused control activate itself
       e.preventDefault();
       setPlaying(!state.playing);
+    } else if (e.key === '/' || e.code === 'Slash') {
+      e.preventDefault();
+      openPalette();
+    } else if (e.code === 'BracketLeft') {
+      e.preventDefault();
+      cycleTrain(-1);
+    } else if (e.code === 'BracketRight') {
+      e.preventDefault();
+      cycleTrain(1);
+    } else if (e.key === '1' || e.key === '2' || e.key === '3') {
+      e.preventDefault();
+      selectLineAndNearest(['RED', 'GREEN', 'BLUE'][Number(e.key) - 1]);
     } else if (e.key.toLowerCase() === 'r') recenterCamera();
     else if (e.key.toLowerCase() === 'i') toggleNotes();
     else if (e.key.toLowerCase() === 'h') document.body.classList.toggle('hide-ui');
@@ -1504,10 +2250,7 @@ function bindControls() {
     else if (e.key.toLowerCase() === 'l') {
       const order = ['RED', 'GREEN', 'BLUE'];
       const i = order.indexOf(state.lineId);
-      const next = order[(i + 1) % order.length];
-      const line = network.byId.get(next);
-      selectNearestTrain(next, line.getPoint(line.length / 2), false);
-      recenterCamera();
+      selectLineAndNearest(order[(i + 1) % order.length]);
     } else if (e.key.toLowerCase() === 'b') {
       const visible = !document.body.classList.contains('no-buildings');
       world.setBuildingsVisible(visible);

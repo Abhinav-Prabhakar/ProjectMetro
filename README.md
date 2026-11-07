@@ -131,7 +131,12 @@ cross-origin and change constantly.
 | Wheel / pinch | Zoom |
 | Double-click | Recentre the chase camera |
 | `Space` | Pause / resume (stays locked to the timetable) |
-| Train pill | Pick any set in service — nearest first, with direction and live speed |
+| Train pill / `F` | Fleet board — every set in service, grouped by corridor, with next station, ETA and terminus |
+| `/` or `Cmd/Ctrl K` | Command palette — search every next station, terminus, set number or corridor |
+| `[` / `]` | Follow the previous / next set |
+| `1` / `2` / `3` | Follow the nearest set on Red / Green / Blue |
+| `↑` `↓` / `Enter` | Move through the board or palette / follow the selected set |
+| `Esc` | Close the board, palette or notes |
 | `N` | Day / night |
 | `L` | Cycle lines |
 | `B` | Toggle 3D buildings |

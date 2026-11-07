@@ -88,7 +88,7 @@
 <link rel="dns-prefetch" href="https://tiles.openfreemap.org" />
 <link rel="preload" href="assets/fonts/Inter-400.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="preload" href="assets/fonts/JetBrainsMono-400.woff2" as="font" type="font/woff2" crossorigin />
-<link rel="modulepreload" href="js/main.js?v=20261107a" />
+<link rel="modulepreload" href="js/main.js?v=20261107b" />
 
 <script type="application/ld+json">
 {
@@ -114,7 +114,7 @@
 </script>
 
 <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-<link rel="stylesheet" href="css/style.css?v=20261107a" />
+<link rel="stylesheet" href="css/style.css?v=20261107b" />
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.js" } }
 </script>
@@ -190,6 +190,11 @@
         <div class="weather-temp">31°</div>
         <div class="weather-meta">HYDERABAD<br/><span>HAZE · SE 9 KM/H</span></div>
       </div>
+      <button class="cmd-trigger" id="cmdBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="palette" title="Search stations and sets (Command/Ctrl K)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M15.5 15.5 21 21" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <span>SEARCH</span>
+        <kbd id="cmdKey">⌘K</kbd>
+      </button>
       <button class="icon-btn" id="installBtn" aria-label="Install Metro Live" title="Install app" hidden>
         <svg viewBox="0 0 24 24"><path d="M12 3.5v9.6M8.4 9.9 12 13.5l3.6-3.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 15.4v3.1c0 .9.7 1.6 1.6 1.6h10.8c.9 0 1.6-.7 1.6-1.6v-3.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       </button>
@@ -346,7 +351,7 @@
     </div>
   </section>
 
-  <div class="hint" id="hint">DRAG&nbsp; ORBIT &nbsp;·&nbsp; SCROLL&nbsp; ZOOM &nbsp;·&nbsp; F&nbsp; FLEET &nbsp;·&nbsp; N&nbsp; NIGHT &nbsp;·&nbsp; L&nbsp; LINE &nbsp;·&nbsp; SPACE&nbsp; PAUSE &nbsp;·&nbsp; H&nbsp; HIDE UI</div>
+  <div class="hint" id="hint">DRAG&nbsp; ORBIT &nbsp;·&nbsp; SCROLL&nbsp; ZOOM &nbsp;·&nbsp; /&nbsp; SEARCH &nbsp;·&nbsp; [&nbsp;]&nbsp; SET &nbsp;·&nbsp; F&nbsp; FLEET &nbsp;·&nbsp; N&nbsp; NIGHT &nbsp;·&nbsp; L&nbsp; LINE &nbsp;·&nbsp; SPACE&nbsp; PAUSE &nbsp;·&nbsp; H&nbsp; HIDE UI</div>
 
   <nav class="dock glass" id="dock" aria-label="Network controls">
     <div class="dock-net">
@@ -383,14 +388,39 @@
 
   <section class="fleet-board glass" id="fleetBoard" role="dialog" aria-label="Fleet board" hidden>
     <header class="fleet-head">
-      <div>
+      <div class="fleet-title">
         <div class="card-kicker">FLEET BOARD</div>
-        <div class="fleet-headline"><b id="fleetBoardTotal">0</b> SETS IN SERVICE · <span id="fleetBoardService">WEEKDAY</span></div>
+        <div class="fleet-headline"><b id="fleetBoardTotal">0</b> <span class="fleet-headline-tail">SETS LIVE · <span id="fleetBoardService">WEEKDAY</span></span></div>
       </div>
-      <button class="fleet-close" id="fleetClose" aria-label="Close fleet board">×</button>
+      <div class="fleet-tools">
+        <div class="fleet-search" role="search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M15.5 15.5 21 21" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <input id="fleetSearch" type="text" placeholder="SEARCH NEXT STATION OR SET" autocomplete="off" spellcheck="false" aria-label="Search fleet by next station or set" />
+          <button class="fleet-search-clear" id="fleetSearchClear" type="button" aria-label="Clear search" hidden>×</button>
+        </div>
+        <button class="fleet-close" id="fleetClose" aria-label="Close fleet board">×</button>
+      </div>
     </header>
     <div class="fleet-cols" id="fleetList"></div>
   </section>
+
+  <div class="palette" id="palette" hidden>
+    <div class="palette-scrim" id="paletteScrim" aria-hidden="true"></div>
+    <section class="palette-panel glass" role="dialog" aria-modal="true" aria-labelledby="paletteTitle">
+      <h2 class="sr-only" id="paletteTitle">Search and switch sets</h2>
+      <div class="palette-search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M15.5 15.5 21 21" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <input id="paletteInput" type="text" placeholder="Search next station, line or set…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="paletteResults" aria-autocomplete="list" />
+        <kbd>ESC</kbd>
+      </div>
+      <div class="palette-body" id="paletteResults" role="listbox" aria-label="Search results"></div>
+      <footer class="palette-foot">
+        <span><kbd>↑</kbd><kbd>↓</kbd> NAVIGATE</span>
+        <span><kbd>↵</kbd> FOLLOW SET</span>
+        <span class="pf-live"><i></i>LIVE TIMETABLE</span>
+      </footer>
+    </section>
+  </div>
 
   <footer class="footer">
     <span>HYDERABAD METRO · RED / GREEN / BLUE · 64.6 KM · 57 STATIONS</span>
@@ -437,6 +467,6 @@
   <p class="notes-small">Timetable and station data © Hyderabad Metro Rail Ltd., July 2026 GTFS (Open Data Telangana). Satellite imagery © Esri, Maxar, Earthstar Geographics. 3D buildings © OpenFreeMap / OpenStreetMap contributors. An independent visual study, not an operational feed.</p>
 </div>
 
-<script type="module" src="js/main.js?v=20261107a"></script>
+<script type="module" src="js/main.js?v=20261107b"></script>
 </body>
 </html>

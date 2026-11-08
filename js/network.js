@@ -7,7 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { MAP } from './config.js?v=20261108a';
+import { MAP } from './config.js?v=20261108b';
 
 const DEG = Math.PI / 180;
 

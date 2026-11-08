@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from '../vendor/RoundedBoxGeometry.js';
-import { TRAIN, COLORS } from './config.js?v=20261108a';
-import { mergeByMaterial, mergeGeometries } from './geomutil.js?v=20261108a';
-import { makeGlowRadial } from './materials.js?v=20261108a';
+import { TRAIN, COLORS } from './config.js?v=20261108b';
+import { mergeByMaterial, mergeGeometries } from './geomutil.js?v=20261108b';
+import { makeGlowRadial } from './materials.js?v=20261108b';
 
 // ---------------------------------------------------------------------------
 // Hyderabad Metro (Hyundai Rotem) 3-car set — procedural model.

@@ -7,15 +7,15 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { MAP, TRAIN, SIM } from './config.js?v=20261107c';
-import { loadNetwork } from './network.js?v=20261107c';
-import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261107c';
-import { buildStations } from './station.js?v=20261107c';
-import { createTrain, createTrainProxy } from './train.js?v=20261107c';
-import { createWorld } from './world.js?v=20261107c';
-import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261107c';
-import { makeGlowRadial } from './materials.js?v=20261107c';
-import { mergeGeometries } from './geomutil.js?v=20261107c';
+import { MAP, TRAIN, SIM } from './config.js?v=20261108a';
+import { loadNetwork } from './network.js?v=20261108a';
+import { buildGuideway, DECK_TOP, RAIL_TOP, TRACK_OFFSET } from './infrastructure.js?v=20261108a';
+import { buildStations } from './station.js?v=20261108a';
+import { createTrain, createTrainProxy } from './train.js?v=20261108a';
+import { createWorld } from './world.js?v=20261108a';
+import { Fleet, istParts, svcIndexFor } from './sim.js?v=20261108a';
+import { makeGlowRadial } from './materials.js?v=20261108a';
+import { mergeGeometries } from './geomutil.js?v=20261108a';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -369,7 +369,7 @@ async function boot() {
 
       const proxies = [];
       for (let i = 0; i < 5; i++) {
-        const p = createTrainProxy({ color: route.color });
+        const p = createTrainProxy({ color: route.color, livery: detailed.livery });
         p.group.visible = false;
         sceneObjects.push(p.group);
         proxies.push(p);
@@ -1062,8 +1062,9 @@ function setFleetOpen(open) {
     renderFleet();
     els.fleetBoard.hidden = false;
     requestAnimationFrame(() => {
-      const active = els.fleetList.querySelector('.fleet-row.cursor');
-      scrollIntoBox(els.fleetList, active, 'center');
+      // Open at the top of the shared board. The cursor still starts on the
+      // followed set, but centring a deep row used to hide the short columns.
+      els.fleetList.scrollTop = 0;
       updateFleetScrollFade();
       if (els.fleetSearch && !els.fleetSearch.disabled) els.fleetSearch.focus({ preventScroll: true });
       else els.fleetBtn.focus({ preventScroll: true });

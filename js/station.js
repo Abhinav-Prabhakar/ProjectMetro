@@ -15,9 +15,9 @@ import {
   makeSteel,
   makeRoofPanel,
   makeSignTexture,
-} from './materials.js?v=20261107c';
-import { mergeGeometries } from './geomutil.js?v=20261107c';
-import { DECK_TOP } from './infrastructure.js?v=20261107c';
+} from './materials.js?v=20261108a';
+import { mergeGeometries } from './geomutil.js?v=20261108a';
+import { DECK_TOP } from './infrastructure.js?v=20261108a';
 
 const HALF_LEN = 72;
 const PLATFORM_IN = 3.72;
@@ -47,19 +47,24 @@ function tiledTop(w, d, x, y, z, u = 1, v = 1) {
   return g;
 }
 
-// arched canopy surface, x across the station, z along it
-function archSurface(halfW, eaveY, apexY, z0, z1, { stepsX = 20, stepsZ = 6, lift = 0 } = {}) {
+function canopyYAt(x, halfW, eave, apex) {
+  const t = Math.min(1, Math.abs(x) / halfW);
+  return apex - (apex - eave) * Math.pow(t, 1.6);
+}
+
+// One longitudinal ribbon of the segmented canopy. The canopy is built as
+// alternating metal and glazed strips, so the skylights are real openings in
+// the roof rather than a painted band.
+function canopyBand(x0, x1, halfW, eave, apex, z0, z1, { stepsX = 2, stepsZ = 12, u = 1, v = 1, lift = 0 } = {}) {
   const pos = [];
   const uv = [];
   const ind = [];
   for (let iz = 0; iz <= stepsZ; iz++) {
     const z = z0 + ((z1 - z0) * iz) / stepsZ;
     for (let ix = 0; ix <= stepsX; ix++) {
-      const x = -halfW + (2 * halfW * ix) / stepsX;
-      const k = 1 - (x / halfW) ** 2;
-      const y = eaveY + (apexY - eaveY) * k + lift;
-      pos.push(x, y, z);
-      uv.push(ix / stepsX, iz / stepsZ);
+      const x = x0 + ((x1 - x0) * ix) / stepsX;
+      pos.push(x, canopyYAt(x, halfW, eave, apex) + lift, z);
+      uv.push(((x - x0) / (x1 - x0)) * u, (iz / stepsZ) * v);
     }
   }
   for (let iz = 0; iz < stepsZ; iz++) {
@@ -68,9 +73,6 @@ function archSurface(halfW, eaveY, apexY, z0, z1, { stepsX = 20, stepsZ = 6, lif
       const b = a + 1;
       const c = a + stepsX + 1;
       const d = c + 1;
-      // Winding is reversed so the top face is front-facing in the map's
-      // projection (which mirrors screen Y). Normals are restored to +Y below
-      // so the surface is lit correctly from above.
       ind.push(a, b, c, b, d, c);
     }
   }
@@ -79,13 +81,26 @@ function archSurface(halfW, eaveY, apexY, z0, z1, { stepsX = 20, stepsZ = 6, lif
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(ind);
   g.computeVertexNormals();
-  // Flipping the winding also flipped the generated normals; put them back
-  // outward so the sun, sky and environment all see a roof.
+  // Winding is reversed so the top face is front-facing in the map's
+  // projection; put the generated normals back outward so the sun, sky and
+  // environment all see a roof.
   const nor = g.attributes.normal;
   for (let i = 0; i < nor.count; i++) {
     nor.setXYZ(i, -nor.getX(i), -nor.getY(i), -nor.getZ(i));
   }
   nor.needsUpdate = true;
+  return g;
+}
+
+function strut(ax, ay, az, bx, by, bz, w = 0.14) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const dz = bz - az;
+  const len = Math.hypot(dx, dy, dz);
+  const g = new THREE.BoxGeometry(w, w, len);
+  const dir = new THREE.Vector3(dx / len, dy / len, dz / len);
+  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir));
+  g.translate((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
   return g;
 }
 
@@ -135,11 +150,12 @@ export function makeStationMaterials(line, anisotropy = 8) {
   });
   const roof = new THREE.MeshStandardMaterial({
     map: roofTex,
-    color: 0x9ba4a3,
-    roughness: 0.52,
-    metalness: 0.06,
-    envMapIntensity: 1.2,
+    color: 0xf2f4f1,
+    roughness: 0.58,
+    metalness: 0.08,
+    envMapIntensity: 0.9,
     side: THREE.DoubleSide,
+    flatShading: true,
   });
   const glass = new THREE.MeshPhysicalMaterial({
     color: 0xcfe6f0,
@@ -155,6 +171,22 @@ export function makeStationMaterials(line, anisotropy = 8) {
     color: new THREE.Color(line.color),
     roughness: 0.42,
     metalness: 0.15,
+  });
+  // Enamel cladding on the stair / lift cores. The real stations pick out these
+  // volumes in a deep green, which reads well against the grey canopy.
+  const accentMat = new THREE.MeshStandardMaterial({
+    color: 0x22664f,
+    roughness: 0.44,
+    metalness: 0.18,
+    envMapIntensity: 0.9,
+  });
+  // Deep-blue enamel on the fascia: the band the station name sits on. On the
+  // real stations it is the brightest, most seen piece of the building.
+  const fasciaMat = new THREE.MeshStandardMaterial({
+    color: 0x0c2c57,
+    roughness: 0.48,
+    metalness: 0.1,
+    envMapIntensity: 0.7,
   });
   // Pure light emitters. Additive so they bloom against the dark and can be
   // switched off completely in daylight without touching their geometry.
@@ -178,7 +210,7 @@ export function makeStationMaterials(line, anisotropy = 8) {
   concrete.userData.receiveShadow = true;
 
   return {
-    concrete, concreteDark, tile, tactile, steel, darkSteel, roof, glass, line: lineMat, glow, screenMat,
+    concrete, concreteDark, tile, tactile, steel, darkSteel, roof, glass, line: lineMat, accent: accentMat, fascia: fasciaMat, glow, screenMat,
     night: { glow, screenMat, glass },
   };
 }
@@ -196,6 +228,8 @@ export function buildStation(route, st, mats, index = 0, { low = false } = {}) {
   const roof = [];
   const glass = [];
   const line = [];
+  const accent = [];
+  const fascia = [];
   const glow = [];
   const screen = [];
 
@@ -259,34 +293,105 @@ export function buildStation(route, st, mats, index = 0, { low = false } = {}) {
     }
   }
 
-  // ---- columns and cross bracing -----------------------------------------
-  const eave = PLATFORM_Y + (low ? 2.75 : 4.55);
-  const apex = PLATFORM_Y + (low ? 3.95 : 7.55);
-  const halfW = PLATFORM_OUT + (low ? 0.55 : 1.85);
-  const colTop = eave + 0.1;
-  const colH = colTop - PLATFORM_Y;
-  const bays = low ? 6 : 9;
-  for (let i = 0; i <= bays; i++) {
-    const z = -half + 6 + ((half * 2 - 12) * i) / bays;
-    for (const sgn of [-1, 1]) {
-      const x = sgn * (PLATFORM_OUT - 0.65);
-      steel.push(box(0.3, colH, 0.3, x, PLATFORM_Y + colH / 2, z));
-      // tapered foot
-      concrete.push(box(0.55, 0.35, 0.55, x, PLATFORM_Y + 0.17, z));
-      // diagonal brace every other bay
-      if (i < bays) {
-        const g = new THREE.BoxGeometry(0.11, 0.11, 4.6);
-        g.rotateX(0.62);
-        g.translate(x, PLATFORM_Y + colH * 0.78, z + 4.2);
-        steel.push(g);
-      }
-    }
-    steel.push(box(PLATFORM_OUT * 2 - 1.3, 0.26, 0.26, 0, colTop, z));
+  // ---- canopy -------------------------------------------------------------
+  // HMRL's newer stations are a shallow segmented canopy: metal deck panels
+  // crossing between long glazed skylight strips, carried on a single row of
+  // median piers with V-shaped cantilever arms. That is a very different
+  // silhouette from the old white barrel vault, and it is what the reference
+  // photographs actually show.
+  const halfW = PLATFORM_OUT + (low ? 0.5 : 1.7);
+  const eave = PLATFORM_Y + (low ? 3.0 : 4.9);
+  const apex = eave + (low ? 0.6 : 1.45);
+  const bands = low
+    ? [[-1, -0.4, 0], [-0.4, -0.16, 1], [-0.16, 0.16, 0], [0.16, 0.4, 1], [0.4, 1, 0]]
+    : [
+        [-1, -0.88, 0], [-0.88, -0.72, 1], [-0.72, -0.12, 0],
+        [-0.12, 0.12, 1], [0.12, 0.72, 0], [0.72, 0.88, 1], [0.88, 1, 0],
+      ];
+  const stepsZ = low ? 8 : 14;
+  for (const [f0, f1, glazed] of bands) {
+    const g = canopyBand(f0 * halfW, f1 * halfW, halfW, eave, apex, -half, half, {
+      stepsX: 2,
+      stepsZ,
+      u: Math.max(1, Math.round((f1 - f0) * 4)),
+      v: low ? 12 : 24,
+    });
+    if (glazed) {
+      glass.push(g);
+      // A soft warm ribbon just beneath each skylight: invisible by day, and
+      // at night it reads as platform lighting glowing through the roof.
+      glow.push(canopyBand(f0 * halfW, f1 * halfW, halfW, eave, apex, -half, half, {
+        stepsX: 1,
+        stepsZ: 2,
+        u: 1,
+        v: 1,
+        lift: -0.18,
+      }));
+    } else roof.push(g);
   }
 
-  // longitudinal edge beams
+  // Long glazing bars / purlins on every band edge, visible from underneath.
+  for (const f of bands.map(([f0]) => f0).concat([1])) {
+    const x = f * halfW;
+    const y = canopyYAt(x, halfW, eave, apex);
+    steel.push(box(0.09, 0.1, half * 2, x, y - 0.05, 0));
+  }
+
+  // Transverse ribs give the canopy its folded-plate rhythm.
+  const ribStep = low ? 14 : 8;
+  const xs = bands.map(([f0]) => f0).concat([1]);
+  for (let z = -half + 2; z <= half - 2; z += ribStep) {
+    for (let i = 0; i < xs.length - 1; i++) {
+      const xa = xs[i] * halfW;
+      const xb = xs[i + 1] * halfW;
+      const ya = canopyYAt(xa, halfW, eave, apex) - 0.12;
+      const yb = canopyYAt(xb, halfW, eave, apex) - 0.12;
+      steel.push(strut(xa, ya, z, xb, yb, z, low ? 0.09 : 0.12));
+    }
+  }
+  // central spine under the crown, tying the ribs together
+  steel.push(box(0.2, 0.26, half * 2 - 1, 0, apex - 0.28, 0));
+
+  // Matching battens on top of the deck. They break the big roof plane into
+  // bays, which is what makes the canopy read as folded metal from the air.
+  for (let z = -half + 2; z <= half - 2; z += ribStep) {
+    for (let i = 0; i < xs.length - 1; i++) {
+      const xa = xs[i] * halfW;
+      const xb = xs[i + 1] * halfW;
+      const ya = canopyYAt(xa, halfW, eave, apex) + 0.035;
+      const yb = canopyYAt(xb, halfW, eave, apex) + 0.035;
+      steel.push(strut(xa, ya, z, xb, yb, z, low ? 0.06 : 0.085));
+    }
+  }
+
+  // eaves gutters and a warm exterior light line along each edge
   for (const sgn of [-1, 1]) {
-    steel.push(box(0.2, 0.3, half * 2, sgn * (PLATFORM_OUT - 0.65), colTop + 0.13, 0));
+    dark.push(box(0.26, 0.24, half * 2, sgn * halfW, eave - 0.02, 0));
+    glow.push(box(0.12, 0.05, half * 2 - 2, sgn * (halfW + 0.12), eave + 0.08, 0));
+  }
+  // threshold light line where the platforms meet the open ends
+  if (!low) {
+    for (const zs of [-1, 1]) {
+      glow.push(box(halfW * 1.55, 0.05, 0.05, 0, PLATFORM_Y + 0.02, zs * (half - 0.4)));
+    }
+  }
+
+  // ---- median piers and cantilever arms ----------------------------------
+  const colCount = low ? 4 : 7;
+  const colBase = PLATFORM_Y - 1.8;
+  const colTop = apex - 0.45;
+  for (let i = 0; i <= colCount; i++) {
+    const z = -half + 8 + ((half * 2 - 16) * i) / colCount;
+    steel.push(box(0.44, colTop - colBase, 0.44, 0, (colTop + colBase) / 2, z));
+    concrete.push(box(0.72, 0.4, 0.72, 0, PLATFORM_Y - 1.55, z));
+    for (const sgn of [-1, 1]) {
+      const xEnd = sgn * (low ? 4.8 : 5.8);
+      const yEnd = canopyYAt(xEnd, halfW, eave, apex) - 0.26;
+      steel.push(strut(0, colTop - 0.1, z, xEnd, yEnd, z, low ? 0.12 : 0.17));
+      steel.push(strut(0, colTop - 0.95, z, xEnd * 0.96, yEnd - 0.03, z, low ? 0.08 : 0.11));
+    }
+    // cross tie under the arms, as on the real piers
+    steel.push(box((low ? 4.8 : 5.8) * 2, 0.15, 0.15, 0, colTop - 1.05, z));
   }
 
   // ---- side screens -------------------------------------------------------
@@ -301,108 +406,104 @@ export function buildStation(route, st, mats, index = 0, { low = false } = {}) {
     }
   }
 
-  // ---- canopy -------------------------------------------------------------
-  // The real HMRL canopy is a deep barrel vault made of paired curved panels
-  // with a glazed crown and heavy ribs showing underneath. The lower platform
-  // of a stacked interchange gets a shallower version so it clears the deck
-  // above it.
-  const ridge = low ? 0 : 2.35;
-  roof.push(scaleUV(archSurface(halfW, eave, apex, -half, half, { stepsX: 28, stepsZ: 16 }), 2.4, 22));
-  // raised central spine with dark louvres, as on the real vault
-  if (!low) {
-    roof.push(box(1.7, 0.3, half * 2, 0, apex + 0.2, 0));
-    dark.push(box(1.36, 0.06, half * 2 - 2, 0, apex + 0.37, 0));
-    for (const sgn of [-1, 1]) {
-      dark.push(box(0.07, 0.12, half * 2 - 2, sgn * 0.72, apex + 0.34, 0));
-    }
-  }
-  // eaves gutters and a warm exterior light line along each edge
+  // ---- fascia, line colour and station name boards -----------------------
+  // The fascia is a deep-blue enamel band running the whole platform, with the
+  // name repeated along it. That band is the thing you recognise from the
+  // street, so it carries the signage rather than a thin dark strip.
+  const fasciaH = low ? 0.8 : 1.7;
+  const fasciaY = eave - fasciaH / 2 + 0.06;
   for (const sgn of [-1, 1]) {
-    dark.push(box(0.24, 0.22, half * 2, sgn * halfW, eave - 0.06, 0));
-    glow.push(box(0.12, 0.05, half * 2 - 2, sgn * (halfW + 0.1), eave + 0.04, 0));
-  }
-  // A thin lit ridge on the crown: the one line that reads from directly
-  // above, so a station is legible from the chase camera at night.
-  glow.push(box(0.22, 0.06, half * 2 - 3, 0, apex + 0.43, 0));
-  // threshold light line where the platforms meet the open ends
-  if (!low) {
-    for (const zs of [-1, 1]) {
-      glow.push(box(halfW * 1.55, 0.05, 0.05, 0, PLATFORM_Y + 0.02, zs * (half - 0.4)));
-    }
-  }
-  if (ridge) {
-    glass.push(
-      archSurface(ridge, eave + 0.1, apex + 0.1, -half + 1, half - 1, {
-        stepsX: 5,
-        stepsZ: 14,
-        lift: 0.02,
-      })
-    );
-    // glazed crown rails
-    for (const sgn of [-1, 1]) {
-      steel.push(box(0.09, 0.14, half * 2 - 2, sgn * ridge, apex + 0.06, 0));
-    }
+    const x = sgn * (halfW + 0.04);
+    fascia.push(box(0.14, fasciaH, half * 2, x, fasciaY, 0));
+    dark.push(box(0.19, 0.12, half * 2, x, fasciaY + fasciaH / 2 + 0.06, 0));
+    line.push(box(0.17, 0.1, half * 2, x + sgn * 0.015, fasciaY - fasciaH / 2 + 0.05, 0));
   }
 
-  // deep arch ribs + longitudinal purlins
-  const ribCount = low ? 8 : 13;
-  const ribR = low ? 0.09 : 0.145;
-  for (let i = 0; i <= ribCount; i++) {
-    const z = -half + (half * 2 * i) / ribCount;
-    const pts = [];
-    for (let k = 0; k <= 22; k++) {
-      const x = -halfW + (2 * halfW * k) / 22;
-      const y = eave + (apex - eave) * (1 - (x / halfW) ** 2);
-      pts.push(new THREE.Vector3(x, y + 0.16, z));
-    }
-    const curve = new THREE.CatmullRomCurve3(pts);
-    steel.push(new THREE.TubeGeometry(curve, 26, ribR, 6, false));
-    if (!low) {
-      // thin lower chord gives the rib its I-beam depth
-      const lower = pts.map((p) => new THREE.Vector3(p.x, p.y - 0.34, p.z));
-      steel.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(lower), 26, 0.045, 4, false));
-    }
-  }
-  // purlins run the length of the vault just under the panels
-  for (const f of low ? [-0.62, 0, 0.62] : [-0.86, -0.5, 0, 0.5, 0.86]) {
-    const x = halfW * f;
-    const y = eave + (apex - eave) * (1 - f * f) - 0.06;
-    steel.push(box(0.08, 0.1, half * 2, x, y, 0));
-  }
+  const tex = makeSignTexture(st.name, route.color, {
+    sub: `${route.name.toUpperCase()} · ${route.from} ↔ ${route.to}`,
+  });
+  const signMat = new THREE.MeshStandardMaterial({
+    map: tex,
+    emissiveMap: tex,
+    emissive: 0xffffff,
+    emissiveIntensity: 0.25,
+    roughness: 0.5,
+    metalness: 0.05,
+  });
+  signMat.userData.sign = true;
 
-  // fascia + name boards (merged: two meshes per station, not six)
-  const signMat = {};
+  const boards = [];
+  const addBoard = (w, h, x, y, z, rotY) => {
+    const g = new THREE.PlaneGeometry(w, h);
+    if (rotY) g.rotateY(rotY);
+    g.translate(x, y, z);
+    boards.push(g);
+  };
+  // Name panels are sized to the 512 × 96 sign canvas so the lettering keeps
+  // its proportions instead of stretching across the facade.
+  const boardW = low ? 4.4 : 8;
+  const boardH = low ? 0.66 : 1.5;
+  const boardZ = low ? [-44, 0, 44] : [-56, -40, -24, -8, 8, 24, 40, 56];
   for (const sgn of [-1, 1]) {
-    const x = sgn * (halfW + 0.02);
-    dark.push(box(0.16, low ? 0.48 : 0.72, half * 2, x, eave - 0.2, 0));
-    line.push(box(0.18, 0.12, half * 2, x + sgn * 0.02, eave - (low ? 0.5 : 0.62), 0));
-
-    const tex = makeSignTexture(st.name, route.color, { sub: `${route.name.toUpperCase()} · ${route.from} ↔ ${route.to}` });
-    const mat = new THREE.MeshStandardMaterial({
-      map: tex,
-      emissiveMap: tex,
-      emissive: 0xffffff,
-      emissiveIntensity: 0.25,
-      roughness: 0.5,
-      metalness: 0.05,
+    const x = sgn * (halfW + 0.13);
+    const rotY = sgn > 0 ? Math.PI / 2 : -Math.PI / 2;
+    for (const z of boardZ) addBoard(boardW, boardH, x, fasciaY, z, rotY);
+  }
+  // Portal signs at both ends, standing clear above the canopy crown. They face
+  // along the track so an approaching set (and the chase camera) reads the
+  // station name before the roof hides the side fascia.
+  for (const end of [-1, 1]) {
+    const z = end * (half + 0.1);
+    const signH = low ? 0.9 : 1.5;
+    const signY = apex + 0.45 + signH / 2;
+    const signBottom = signY - signH / 2;
+    const postH = signBottom - apex + 0.25;
+    for (const px of [-4.6, 4.6]) {
+      steel.push(box(0.1, postH, 0.1, px, apex - 0.15 + postH / 2, z - end * 0.25));
+    }
+    dark.push(box(low ? 9.6 : 12.6, signH + 0.18, 0.12, 0, signY, z - end * 0.16));
+    addBoard(low ? 9.2 : 12.2, signH, 0, signY, z, end < 0 ? Math.PI : 0);
+    line.push(box(low ? 9.7 : 12.7, 0.08, 0.14, 0, signBottom - 0.02, z - end * 0.15));
+  }
+  // Painted name plates lying on the crown, near each end. The chase camera
+  // mostly looks down, so this is the view that actually identifies a station;
+  // the vertical gantry signs cover the low approach.
+  for (const zs of [-1, 1]) {
+    const z = zs * (half - 8);
+    const g = canopyBand(-4.4, 4.4, halfW, eave, apex, z - 0.8, z + 0.8, {
+      stepsX: 4,
+      stepsZ: 1,
+      u: 1,
+      v: 1,
+      lift: 0.06,
     });
-    mat.userData.sign = true;
-    signMat[sgn] = mat;
+    if (zs < 0) {
+      // The far plate's text has to run the other way so it reads upright when
+      // approached from that end.
+      const uv = g.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i), 1 - uv.getY(i));
+      uv.needsUpdate = true;
+    }
+    boards.push(g);
+  }
 
-    const boards = [];
-    const addBoard = (w, h, z) => {
-      const g = new THREE.PlaneGeometry(w, h);
-      g.rotateY(sgn > 0 ? Math.PI / 2 : -Math.PI / 2);
-      g.translate(x + sgn * 0.09, eave - 0.36, z);
-      boards.push(g);
-    };
-    addBoard(9.2, 1.15, 0);
-    addBoard(4.2, 0.72, -(half - 12));
-    addBoard(4.2, 0.72, half - 12);
-    const mesh = new THREE.Mesh(mergeGeometries(boards), mat);
-    mesh.userData.keep = true;
-    group.add(mesh);
-    boards.forEach((g) => g.dispose());
+  const signMesh = new THREE.Mesh(mergeGeometries(boards), signMat);
+  signMesh.userData.keep = true;
+  group.add(signMesh);
+  boards.forEach((g) => g.dispose());
+
+  // ---- service cores: enamel cladding ------------------------------------
+  if (!low) {
+    for (const sgn of [-1, 1]) {
+      for (const zs of [-1, 1]) {
+        const z = zs * (half - 15);
+        const x = sgn * 8.3;
+        accent.push(box(0.1, 2.7, 4.0, x, PLATFORM_Y + 1.55, z));
+        accent.push(box(0.1, 2.7, 4.0, sgn * 5.7, PLATFORM_Y + 1.55, z));
+        accent.push(box(2.6, 0.16, 4.1, sgn * 7.0, PLATFORM_Y + 2.98, z));
+        line.push(box(0.11, 0.5, 4.02, sgn * 8.35, PLATFORM_Y + 0.4, z));
+      }
+    }
   }
 
   // ---- furniture ----------------------------------------------------------
@@ -457,6 +558,8 @@ export function buildStation(route, st, mats, index = 0, { low = false } = {}) {
     [roof, mats.roof],
     [glass, mats.glass],
     [line, mats.line],
+    [accent, mats.accent],
+    [fascia, mats.fascia],
     [glow, mats.glow],
     [screen, mats.screenMat],
   ];

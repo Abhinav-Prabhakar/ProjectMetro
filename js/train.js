@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from '../vendor/RoundedBoxGeometry.js';
-import { TRAIN, COLORS } from './config.js?v=20261107c';
-import { mergeByMaterial, mergeGeometries } from './geomutil.js?v=20261107c';
-import { makeGlowRadial } from './materials.js?v=20261107c';
+import { TRAIN, COLORS } from './config.js?v=20261108a';
+import { mergeByMaterial, mergeGeometries } from './geomutil.js?v=20261108a';
+import { makeGlowRadial } from './materials.js?v=20261108a';
 
 // ---------------------------------------------------------------------------
 // Hyderabad Metro (Hyundai Rotem) 3-car set — procedural model.
@@ -2613,6 +2613,7 @@ export function createTrain({ anisotropy = 8, color = '#0b5fae' } = {}) {
     group: root,
     cars,
     materials,
+    livery: texturesData,
     setCabMode,
     setMode(direction = 1) {
       setCabMode(direction > 0 ? cars[2].cabA : cars[0].cabB, 'head');
@@ -2685,9 +2686,63 @@ export function createTrain({ anisotropy = 8, color = '#0b5fae' } = {}) {
 // low-detail proxy — kept in sync with the new formation
 // ---------------------------------------------------------------------------
 
-export function createTrainProxy({ color = '#0b5fae' } = {}) {
+// Proxy livery planes share the detailed set's side canvases, so an encountered
+// set reads as the same train without paying for the 91k-tri model. One merged
+// panel per coach keeps the extra draw calls down to three per proxy.
+let proxySideGeom = null;
+const proxyLiveryMats = new WeakMap();
+const NIGHT_SIDE = new THREE.Color(0xa6aeb2);
+
+function proxySidePanels(livery, index) {
+  let mats = proxyLiveryMats.get(livery);
+  if (!mats) {
+    mats = [];
+    for (let i = 0; i < livery.side.length; i++) {
+      mats.push(
+        new THREE.MeshStandardMaterial({
+          map: livery.side[i],
+          color: 0xe9eded,
+          roughness: 0.58,
+          metalness: 0.0,
+          envMapIntensity: 0.18,
+          alphaTest: 0.5,
+          side: THREE.DoubleSide,
+          polygonOffset: true,
+          polygonOffsetFactor: -2,
+          polygonOffsetUnits: -2,
+        })
+      );
+    }
+    proxyLiveryMats.set(livery, mats);
+  }
+  if (!proxySideGeom) {
+    const parts = [];
+    for (const side of [-1, 1]) {
+      const g = new THREE.PlaneGeometry(BODY_HALF * 2, BODY_TOP - BODY_BOTTOM);
+      if (side > 0) {
+        // Mirror the U axis instead of a second texture, so both flanks share
+        // the same canvas and still read left-to-right.
+        const uv = g.attributes.uv;
+        for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));
+        uv.needsUpdate = true;
+      }
+      g.rotateY((side * Math.PI) / 2);
+      g.translate(side * (TRAIN.width / 2 + 0.02), (BODY_TOP + BODY_BOTTOM) / 2, 0);
+      parts.push(g);
+    }
+    proxySideGeom = mergeGeometries(parts);
+    parts.forEach((g) => g.dispose());
+  }
+  return { geom: proxySideGeom, mat: mats[index] };
+}
+
+export function createTrainProxy({ color = '#0b5fae', livery = null } = {}) {
   const group = new THREE.Group();
   group.name = 'train-proxy';
+  const sideMats = [];
+  const frontGeom = livery
+    ? new THREE.PlaneGeometry(2.62, BODY_TOP - BODY_BOTTOM)
+    : null;
 
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true,
@@ -2736,7 +2791,7 @@ export function createTrainProxy({ color = '#0b5fae' } = {}) {
     parts.push(paint(new THREE.BoxGeometry(2.3, 0.4, 2.6).translate(0, 0.62, cz + 7.9), dark));
     // panoramic saloon windows (dark glazing only where the real ones are)
     for (const dz of layout.windows) {
-      parts.push(paint(new THREE.BoxGeometry(TRAIN.width + 0.014, 1.04, WINDOW_W).translate(0, 2.58, cz + dz), glass));
+      parts.push(paint(new THREE.BoxGeometry(TRAIN.width + 0.014, 1.12, WINDOW_W).translate(0, 2.57, cz + dz), glass));
     }
     // doors: brushed panels with a dark window in each leaf
     for (const dz of layout.doors) {
@@ -2784,6 +2839,26 @@ export function createTrainProxy({ color = '#0b5fae' } = {}) {
     mesh.receiveShadow = true;
     const carGroup = new THREE.Group();
     carGroup.add(mesh);
+
+    // Livery overlay: the detailed set's punched side canvas, so windows,
+    // doors, fluting and the line-colour sweep all match the followed train.
+    if (livery) {
+      const panel = proxySidePanels(livery, i);
+      const liveryMesh = new THREE.Mesh(panel.geom, panel.mat);
+      liveryMesh.castShadow = true;
+      carGroup.add(liveryMesh);
+      if (!sideMats.includes(panel.mat)) sideMats.push(panel.mat);
+
+      const isCab = cabSign !== 0;
+      if (isCab) {
+        const end = cabSign;
+        const face = new THREE.Mesh(frontGeom, livery.frontMat);
+        face.position.set(0, (BODY_TOP + BODY_BOTTOM) / 2, cz + end * (TRAIN.shellLength / 2 + 0.905));
+        if (end < 0) face.rotation.y = Math.PI;
+        carGroup.add(face);
+      }
+    }
+
     group.add(carGroup);
     cars.push(carGroup);
     parts.forEach((g) => g.dispose());
@@ -2937,6 +3012,10 @@ export function createTrainProxy({ color = '#0b5fae' } = {}) {
       mat.emissive.setHex(0x141a22);
       mat.emissiveIntensity = 0.7 * nightK;
       glowMat.opacity = 0.72 * nightK;
+      for (const m of sideMats) {
+        m.color.setHex(0xffffff).lerp(NIGHT_SIDE, nightK);
+        m.envMapIntensity = THREE.MathUtils.lerp(0.18, 0.3, nightK);
+      }
       applyLamps();
     },
   };

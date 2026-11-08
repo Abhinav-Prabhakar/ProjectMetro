@@ -1349,16 +1349,6 @@ html[data-time-mode="night"] .maplibregl-canvas {
   color: rgba(235, 242, 243, 0.28);
 }
 .palette-foot > span { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
-.palette-foot .pf-live {
-  margin-left: auto; gap: 6px;
-  color: rgba(235, 242, 243, 0.34);
-}
-.palette-foot .pf-live i {
-  width: 4px; height: 4px; border-radius: 50%;
-  background: #5cd6a0;
-  box-shadow: 0 0 8px rgba(92, 214, 160, 0.7);
-  animation: live 2.4s ease-out infinite;
-}
 
 @media (prefers-reduced-motion: reduce) {
   .fleet-board,
@@ -1476,7 +1466,6 @@ html[data-line="BLUE"] .next-seq { border-left-color: rgba(88, 182, 255, 0.6); }
   .fleet-tools { width: 100%; }
   .fleet-search { flex: 1; width: auto; }
   .fleet-headline { font-size: 7px; }
-  .palette-foot .pf-live { display: none; }
   .cmd-row { grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; padding: 8px 8px; }
   .cmd-glyph { width: 28px; height: 28px; }
   .cmd-sub { font-size: 12px; }
